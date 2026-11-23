@@ -17,5 +17,12 @@ keystore.properties
 *.apk
 *.aab
 *.idsig
-# The published, signed app that the README links to
-!/downloads/QManagementTime.apk
+# Published, signed apps that the README links to (one file per version)
+!/downloads/*.apk
+
+# Per-developer Firebase config and Firebase CLI state
+google-services.json
+.firebase/
+functions/node_modules/
+functions/lib/
+

@@ -1,0 +1,224 @@
+rules_version = '2';
+
+// QNow security rules.
+//
+// Privacy model:
+//   * Customers can read a business's PUBLIC profile and its tokens. Token documents hold only
+//     the number, status and service length. Who holds a token lives in `holders`, which only
+//     the business owner and that one customer can read.
+//   * Business owner name and phone live in `businessPrivate`, readable by the owner only.
+//     A phone number only reaches customers if the owner ticks "show publicly".
+//   * Reviews store no name.
+//
+// Queue integrity:
+//   * Token ids are "{dayKey}-{number}". A token can only be created in the same write that
+//     moves the business's counter forward by exactly one, and the dayKey is checked against the
+//     server clock, so two people can never hold the same number and nobody can restart the count.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function isUser(uid) { return signedIn() && request.auth.uid == uid; }
+    function data() { return request.resource.data; }
+    function changedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function onlyChanged(keys) { return changedKeys().hasOnly(keys); }
+    function changed(key) { return changedKeys().hasAny([key]); }
+    function isShortString(v, max) { return v is string && v.size() <= max; }
+    function optionalShortString(v, max) { return v == null || isShortString(v, max); }
+
+    function bizDoc(bizId) { return /databases/$(database)/documents/businesses/$(bizId); }
+    function tokenDoc(bizId, tokenId) { return /databases/$(database)/documents/businesses/$(bizId)/tokens/$(tokenId); }
+    function holderDoc(bizId, tokenId) { return /databases/$(database)/documents/businesses/$(bizId)/holders/$(tokenId); }
+    function reviewDoc(bizId, uid) { return /databases/$(database)/documents/businesses/$(bizId)/reviews/$(uid); }
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+
+    function isBizOwner(bizId) { return signedIn() && get(bizDoc(bizId)).data.ownerId == request.auth.uid; }
+    function myRole() { return get(userDoc(request.auth.uid)).data.role; }
+
+    // Whole days since 1970-01-01 in the business's own time zone, from the server clock.
+    function serverDayKey(offsetMinutes) {
+      return math.floor((request.time.toMillis() + offsetMinutes * 60000) / 86400000);
+    }
+
+    // The counter moved forward by exactly one (or restarted at 1 on a new day), and the
+    // matching token document is created in the same write.
+    function validQueueStep(bizId) {
+      let before = resource.data.queue;
+      let after = request.resource.data.queue;
+      let today = serverDayKey(resource.data.utcOffsetMinutes);
+      return after.keys().hasOnly(['dayKey', 'lastNumber'])
+        && after.dayKey == today
+        && ((before.dayKey == today && after.lastNumber == before.lastNumber + 1)
+            || (before.dayKey != today && after.lastNumber == 1))
+        && existsAfter(tokenDoc(bizId, string(today) + '-' + string(after.lastNumber)));
+    }
+
+    function validBusiness() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+          'ownerId', 'name', 'category', 'address', 'lat', 'lng', 'geohash', 'photoUrls',
+          'services', 'hours', 'chairs', 'activeChairs', 'status', 'publicPhone', 'ratingSum',
+          'ratingCount', 'utcOffsetMinutes', 'graceMinutes', 'queue', 'createdAt', 'updatedAt'])
+        && isShortString(d.name, 80) && d.name.size() > 0
+        && d.category in ['BARBER', 'SALON', 'PARLOUR', 'CAR_WASH', 'CLINIC', 'OTHER']
+        && isShortString(d.address, 300)
+        && d.lat is number && d.lat >= -90 && d.lat <= 90
+        && d.lng is number && d.lng >= -180 && d.lng <= 180
+        && isShortString(d.geohash, 12)
+        && d.photoUrls is list && d.photoUrls.size() <= 8
+        && d.services is list && d.services.size() <= 50
+        && d.hours is list && d.hours.size() <= 7
+        && d.chairs is int && d.chairs >= 1 && d.chairs <= 50
+        && d.activeChairs is int && d.activeChairs >= 1 && d.activeChairs <= d.chairs
+        && d.status in ['OPEN', 'ON_BREAK', 'CLOSED']
+        && optionalShortString(d.get('publicPhone', null), 20)
+        && d.utcOffsetMinutes is int && d.utcOffsetMinutes >= -720 && d.utcOffsetMinutes <= 840
+        && d.graceMinutes is int && d.graceMinutes >= 1 && d.graceMinutes <= 15;
+    }
+
+    // ---------- users (private to each person) ----------
+    match /users/{uid} {
+      allow read: if isUser(uid);
+      allow create: if isUser(uid)
+        && data().keys().hasOnly(['role', 'displayName', 'createdAt', 'fcmTokens'])
+        && data().role in ['CUSTOMER', 'BUSINESS']
+        && optionalShortString(data().get('displayName', null), 40);
+      // The role can never change after it is chosen.
+      allow update: if isUser(uid)
+        && onlyChanged(['fcmTokens', 'displayName'])
+        && (!changed('fcmTokens') || (data().fcmTokens is list && data().fcmTokens.size() <= 20))
+        && (!changed('displayName') || optionalShortString(data().displayName, 40));
+      allow delete: if false;
+
+      match /favourites/{bizId} {
+        allow read, delete: if isUser(uid);
+        allow create, update: if isUser(uid) && data().keys().hasOnly(['addedAt']);
+      }
+
+      match /tokens/{refId} {
+        allow read, delete: if isUser(uid);
+        allow create: if isUser(uid)
+          && data().keys().hasOnly(['businessId', 'tokenId', 'number', 'businessName', 'createdAt', 'reviewed'])
+          && refId == data().businessId + '_' + data().tokenId
+          && data().reviewed == false
+          && getAfter(holderDoc(data().businessId, data().tokenId)).data.customerId == uid;
+        allow update: if isUser(uid) && onlyChanged(['reviewed']) && data().reviewed == true;
+      }
+
+      match /activeTokens/{bizId} {
+        allow read, delete: if isUser(uid);
+        allow create, update: if isUser(uid)
+          && data().keys().hasOnly(['tokenId'])
+          && getAfter(holderDoc(bizId, data().tokenId)).data.customerId == uid;
+      }
+    }
+
+    // ---------- businesses (public profile) ----------
+    match /businesses/{bizId} {
+      allow read: if signedIn();
+
+      // One business per business account, stored under the owner's uid.
+      allow create: if isUser(bizId)
+        && myRole() == 'BUSINESS'
+        && data().ownerId == request.auth.uid
+        && validBusiness()
+        && data().ratingSum == 0 && data().ratingCount == 0
+        && data().queue == {'dayKey': 0, 'lastNumber': 0};
+
+      allow update: if signedIn() && (
+        // The owner edits the profile, the status, and issues walk-in tokens.
+        (resource.data.ownerId == request.auth.uid
+          && !changed('ownerId') && !changed('ratingSum') && !changed('ratingCount')
+          && validBusiness()
+          && (!changed('queue') || validQueueStep(bizId)))
+        // A customer takes the next token while the business is open.
+        || (onlyChanged(['queue']) && resource.data.status == 'OPEN' && validQueueStep(bizId))
+        // A customer's review moves the rating totals by exactly their rating.
+        || (onlyChanged(['ratingSum', 'ratingCount'])
+          && !exists(reviewDoc(bizId, request.auth.uid))
+          && existsAfter(reviewDoc(bizId, request.auth.uid))
+          && data().ratingCount == resource.data.ratingCount + 1
+          && data().ratingSum == resource.data.ratingSum + getAfter(reviewDoc(bizId, request.auth.uid)).data.rating)
+      );
+      allow delete: if false;
+
+      // Token numbers only. No customer information is ever stored here.
+      match /tokens/{tokenId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && data().keys().hasOnly(['dayKey', 'number', 'status', 'serviceId', 'serviceName',
+                                    'durationMinutes', 'source', 'createdAt'])
+          && tokenId == string(data().dayKey) + '-' + string(data().number)
+          && getAfter(bizDoc(bizId)).data.queue.dayKey == data().dayKey
+          && getAfter(bizDoc(bizId)).data.queue.lastNumber == data().number
+          && data().status == 'WAITING'
+          && data().durationMinutes is int && data().durationMinutes >= 1 && data().durationMinutes <= 600
+          && optionalShortString(data().get('serviceId', null), 64)
+          && optionalShortString(data().get('serviceName', null), 80)
+          && data().createdAt == request.time
+          && (data().source == 'APP' || (data().source == 'WALK_IN' && isBizOwner(bizId)));
+
+        allow update: if signedIn() && (
+          // The business moves tokens through the queue; number and day never change.
+          (isBizOwner(bizId)
+            && !changed('number') && !changed('dayKey') && !changed('source') && !changed('createdAt')
+            && data().status in ['WAITING', 'SERVING', 'GRACE', 'DONE', 'NO_SHOW', 'CANCELLED'])
+          // The holder may cancel while still waiting.
+          || (resource.data.status == 'WAITING' && data().status == 'CANCELLED'
+            && onlyChanged(['status', 'completedAt'])
+            && get(holderDoc(bizId, tokenId)).data.customerId == request.auth.uid)
+        );
+        allow delete: if false;
+      }
+
+      // Who holds each token. Business owner and that customer only.
+      match /holders/{tokenId} {
+        allow read: if isBizOwner(bizId)
+          || (signedIn() && resource.data.customerId == request.auth.uid);
+
+        allow create: if signedIn()
+          && data().keys().hasOnly(['customerId', 'label', 'dayKey'])
+          && isShortString(data().label, 40)
+          && !exists(tokenDoc(bizId, tokenId)) && existsAfter(tokenDoc(bizId, tokenId))
+          && (data().customerId == request.auth.uid
+              || (data().customerId == null && isBizOwner(bizId)));
+        allow update: if isBizOwner(bizId) && onlyChanged(['label']) && isShortString(data().label, 40);
+        allow delete: if false;
+      }
+
+      // Anonymous reviews, one per customer, only after a completed visit.
+      match /reviews/{reviewerId} {
+        allow read: if signedIn();
+        allow create: if isUser(reviewerId)
+          && data().keys().hasOnly(['rating', 'comment', 'tokenId', 'createdAt'])
+          && data().rating is int && data().rating >= 1 && data().rating <= 5
+          && isShortString(data().comment, 500)
+          && data().createdAt == request.time
+          && get(holderDoc(bizId, data().tokenId)).data.customerId == request.auth.uid
+          && get(tokenDoc(bizId, data().tokenId)).data.status == 'DONE'
+          && getAfter(bizDoc(bizId)).data.ratingCount == get(bizDoc(bizId)).data.ratingCount + 1;
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------- business private details (owner only) ----------
+    match /businessPrivate/{bizId} {
+      allow read: if isUser(bizId);
+      allow create, update: if isUser(bizId)
+        && data().keys().hasOnly(['ownerId', 'ownerName', 'phone', 'showPhonePublicly'])
+        && data().ownerId == request.auth.uid
+        && isShortString(data().ownerName, 80)
+        && isShortString(data().phone, 20)
+        && data().showPhonePublicly is bool;
+      allow delete: if false;
+    }
+
+    // ---------- home banners (managed from the console) ----------
+    match /promos/{promoId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+  }
+}

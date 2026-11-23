@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "queue time management"
+rootProject.name = "QNow"
 include(":app")

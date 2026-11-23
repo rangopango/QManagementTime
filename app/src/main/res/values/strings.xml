@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">queue time management</string>
+    <string name="app_name">QNow</string>
+    <string name="channel_queue_alerts">Queue alerts</string>
+    <string name="channel_queue_alerts_desc">Tells you when your turn is close and when it\'s your turn</string>
 </resources>
