@@ -16,5 +16,6 @@ local.properties
 keystore.properties
 *.apk
 *.aab
+*.idsig
 # The published, signed app that the README links to
 !/downloads/QManagementTime.apk
