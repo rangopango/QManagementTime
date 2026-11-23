@@ -163,7 +163,7 @@ private fun RoundIcon(onClick: () -> Unit, content: @Composable () -> Unit) {
 private fun DetailContent(live: LiveBusiness, state: DetailUiState, vm: BusinessDetailViewModel) {
     val biz = live.business
     LazyColumn(contentPadding = PaddingValues(bottom = 140.dp)) {
-        item { PhotoHeader(biz) }
+        item { PhotoHeader(state.photos.map { it.bytes }) }
         item {
             Column(Modifier.padding(horizontal = Space.screen, vertical = Space.lg)) {
                 Text(biz.category.label.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -208,16 +208,16 @@ private fun DetailContent(live: LiveBusiness, state: DetailUiState, vm: Business
 }
 
 @Composable
-private fun PhotoHeader(biz: Business) {
+private fun PhotoHeader(photos: List<ByteArray>) {
     Box(Modifier.fillMaxWidth().height(280.dp).background(QNowTheme.extended.heroGradient)) {
-        if (biz.photoUrls.isNotEmpty()) {
-            val pager = rememberPagerState { biz.photoUrls.size }
+        if (photos.isNotEmpty()) {
+            val pager = rememberPagerState { photos.size }
             HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-                AsyncImage(biz.photoUrls[page], null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                AsyncImage(photos[page], null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
-            if (biz.photoUrls.size > 1) {
+            if (photos.size > 1) {
                 Row(Modifier.align(Alignment.BottomCenter).padding(bottom = Space.xl)) {
-                    repeat(biz.photoUrls.size) { i ->
+                    repeat(photos.size) { i ->
                         Box(
                             Modifier.padding(3.dp).size(if (i == pager.currentPage) 8.dp else 6.dp).clip(CircleShape)
                                 .background(Color.White.copy(alpha = if (i == pager.currentPage) 1f else 0.5f)),

@@ -17,6 +17,7 @@ import com.sabil.qnow.domain.queue.LiveBusiness
 import com.sabil.qnow.domain.queue.ObserveLiveBusiness
 import com.sabil.qnow.domain.repository.BusinessDraft
 import com.sabil.qnow.domain.repository.BusinessRepository
+import com.sabil.qnow.domain.repository.PhotoDraft
 import com.sabil.qnow.domain.repository.LocationRepository
 import com.sabil.qnow.domain.repository.QueueRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,6 +41,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+
+/** Each photo is a Firestore read for every customer who opens the shop, so keep it small. */
+const val MAX_PHOTOS = 6
 
 /** Whether the signed-in business account has registered its shop yet. */
 sealed interface MyBusinessState {
@@ -91,7 +95,7 @@ data class BusinessFormState(
     val hours: List<DayHours> = (1..7).map { DayHours(it, open = it != 7) },
     val chairs: Int = 1,
     val graceMinutes: Int = 3,
-    val existingPhotos: List<String> = emptyList(),
+    val existingPhotos: List<com.sabil.qnow.domain.model.Photo> = emptyList(),
     val newPhotos: List<Uri> = emptyList(),
     val saving: Boolean = false,
     val error: String? = null,
@@ -154,7 +158,7 @@ class BusinessFormViewModel @Inject constructor(
                     hours = if (existing.hours.isEmpty()) s.hours else existing.hours.sortedBy { it.day },
                     chairs = existing.chairs,
                     graceMinutes = existing.graceMinutes,
-                    existingPhotos = existing.photoUrls,
+                    existingPhotos = runCatching { businesses.photos(existing) }.getOrDefault(emptyList()),
                 )
             }
             if (existing == null) {
@@ -183,9 +187,9 @@ class BusinessFormViewModel @Inject constructor(
     fun updateService(d: ServiceDraft) = _state.update { s -> s.copy(services = s.services.map { if (it.id == d.id) d else it }, error = null) }
     fun removeService(id: String) = _state.update { s -> s.copy(services = s.services.filterNot { it.id == id }) }
     fun updateDay(d: DayHours) = _state.update { s -> s.copy(hours = s.hours.map { if (it.day == d.day) d else it }, error = null) }
-    fun addPhotos(uris: List<Uri>) = _state.update { s -> s.copy(newPhotos = (s.newPhotos + uris).distinct().take(8 - s.existingPhotos.size)) }
+    fun addPhotos(uris: List<Uri>) = _state.update { s -> s.copy(newPhotos = (s.newPhotos + uris).distinct().take(MAX_PHOTOS - s.existingPhotos.size)) }
     fun removeNewPhoto(uri: Uri) = _state.update { s -> s.copy(newPhotos = s.newPhotos - uri) }
-    fun removeExistingPhoto(url: String) = _state.update { s -> s.copy(existingPhotos = s.existingPhotos - url) }
+    fun removeExistingPhoto(id: String) = _state.update { s -> s.copy(existingPhotos = s.existingPhotos.filterNot { it.id == id }) }
 
     fun goTo(step: FormStep) = _state.update { it.copy(step = step, error = null) }
 
@@ -215,7 +219,7 @@ class BusinessFormViewModel @Inject constructor(
                     BusinessDraft(
                         ownerName = s.ownerName, phone = s.phone, showPhonePublicly = s.showPhonePublicly,
                         name = s.name, category = s.category, address = s.address, location = s.location!!,
-                        existingPhotoUrls = s.existingPhotos, newPhotos = s.newPhotos,
+                        photos = s.existingPhotos.map { PhotoDraft.Saved(it) } + s.newPhotos.map { PhotoDraft.New(it) },
                         services = s.services.mapNotNull { it.toService() }, hours = s.hours,
                         chairs = s.chairs, graceMinutes = s.graceMinutes,
                     ),

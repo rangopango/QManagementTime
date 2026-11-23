@@ -4,7 +4,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.firestore.firestoreSettings
-import com.google.firebase.storage.FirebaseStorage
 import com.sabil.qnow.data.auth.FirebaseAuthRepository
 import com.sabil.qnow.data.business.FirestoreBusinessRepository
 import com.sabil.qnow.data.location.AndroidLocationRepository
@@ -40,9 +39,6 @@ object FirebaseModule {
             setLocalCacheSettings(PersistentCacheSettings.newBuilder().build())
         }
     }
-
-    @Provides @Singleton
-    fun storage(): FirebaseStorage = FirebaseStorage.getInstance()
 }
 
 @Module

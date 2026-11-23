@@ -4,7 +4,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.SetOptions
 import com.sabil.qnow.data.firebase.Paths
 import com.sabil.qnow.data.firebase.business
 import com.sabil.qnow.data.firebase.observe
@@ -56,14 +55,6 @@ class FirestoreUserRepository @Inject constructor(
         secureStore.putRole(uid, role)
     }
 
-    override suspend fun registerPushToken(token: String) {
-        val uid = auth.currentUser?.uid ?: return
-        val doc = db.collection(Paths.USERS).document(uid)
-        // Only update an existing profile; the role screen creates it.
-        if (doc.get().await().exists()) {
-            doc.set(mapOf("fcmTokens" to FieldValue.arrayUnion(token)), SetOptions.merge()).await()
-        }
-    }
 }
 
 @Singleton

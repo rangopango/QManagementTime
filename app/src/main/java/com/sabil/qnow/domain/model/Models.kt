@@ -51,7 +51,10 @@ data class Business(
     val address: String,
     val location: GeoLocation?,
     val geohash: String,
-    val photoUrls: List<String>,
+    /** Small JPEG (about 240 px) of the first photo, kept in the business doc for lists and pins. */
+    val thumbnail: ByteArray?,
+    /** Ids of full-size photos in businesses/{id}/photos, in display order. */
+    val photoIds: List<String>,
     val services: List<Service>,
     val hours: List<DayHours>,
     val chairs: Int,
@@ -144,6 +147,9 @@ data class Promo(
     val targetBusinessId: String?,
     val priority: Int,
 )
+
+/** A shop photo stored as compressed JPEG bytes in Firestore (no paid file storage). */
+class Photo(val id: String, val bytes: ByteArray)
 
 data class AppUser(
     val uid: String,

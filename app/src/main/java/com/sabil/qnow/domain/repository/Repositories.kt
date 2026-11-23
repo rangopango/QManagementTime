@@ -34,7 +34,6 @@ interface AuthRepository {
 interface UserRepository {
     fun observeUser(uid: String): Flow<AppUser?>
     suspend fun chooseRole(role: UserRole, displayName: String?)
-    suspend fun registerPushToken(token: String)
 }
 
 data class BusinessDraft(
@@ -45,19 +44,25 @@ data class BusinessDraft(
     val category: com.sabil.qnow.domain.model.BusinessCategory,
     val address: String,
     val location: GeoLocation,
-    val existingPhotoUrls: List<String>,
-    val newPhotos: List<Uri>,
+    /** Photos to keep, in order: already-saved ones (by id) and newly picked ones. */
+    val photos: List<PhotoDraft>,
     val services: List<Service>,
     val hours: List<com.sabil.qnow.domain.model.DayHours>,
     val chairs: Int,
     val graceMinutes: Int,
 )
 
+sealed interface PhotoDraft {
+    data class Saved(val photo: com.sabil.qnow.domain.model.Photo) : PhotoDraft
+    data class New(val uri: Uri) : PhotoDraft
+}
+
 interface BusinessRepository {
     fun observeBusiness(id: String): Flow<Business?>
     fun observeMyBusiness(): Flow<Business?>
     suspend fun myPrivateDetails(): BusinessPrivate?
     fun observeNearby(center: GeoLocation, radiusKm: Double): Flow<List<Business>>
+    suspend fun photos(business: Business): List<com.sabil.qnow.domain.model.Photo>
     suspend fun saveBusiness(draft: BusinessDraft)
     suspend fun setStatus(status: BusinessStatus)
     suspend fun setActiveChairs(count: Int)

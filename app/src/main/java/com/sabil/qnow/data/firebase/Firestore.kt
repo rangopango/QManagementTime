@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.callbackFlow
 /**
  * Collection layout. Public and private data never share a document:
  *
- * users/{uid}                        private profile: role, push tokens (owner only)
+ * users/{uid}                        private profile: role, display name (owner only)
  * users/{uid}/favourites/{bizId}     starred businesses (owner only)
  * users/{uid}/tokens/{bizId_tokenId} tokens this customer holds (owner only)
  * users/{uid}/activeTokens/{bizId}   lock: at most one live token per business (owner only)
@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * businesses/{bizId}/tokens/{id}     token numbers and status only, no customer info (anyone signed in)
  * businesses/{bizId}/holders/{id}    who holds each token (business owner + that customer)
  * businesses/{bizId}/reviews/{uid}   anonymous rating + comment (anyone signed in)
+ * businesses/{bizId}/photos/{id}     compressed shop photos as bytes (anyone signed in; owner writes)
  * promos/{id}                        home banners, written from the console only
  */
 object Paths {
@@ -35,6 +36,7 @@ object Paths {
     const val TOKENS = "tokens"
     const val HOLDERS = "holders"
     const val REVIEWS = "reviews"
+    const val PHOTOS = "photos"
     const val PROMOS = "promos"
 }
 

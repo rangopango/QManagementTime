@@ -7,7 +7,6 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.messaging.FirebaseMessaging
 import com.sabil.qnow.domain.model.UserRole
 import com.sabil.qnow.domain.repository.AuthRepository
 import com.sabil.qnow.domain.repository.PhoneAuthStep
@@ -116,7 +115,6 @@ class RoleViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 users.chooseRole(role, _state.value.name.ifBlank { null })
-                runCatching { users.registerPushToken(FirebaseMessaging.getInstance().token.await()) }
             }.onFailure { _state.update { it.copy(saving = false, error = "Couldn't save that. Check your connection and try again.") } }
         }
     }

@@ -2,7 +2,19 @@
 
 All notable changes to this project. Newest first. Versions follow [Semantic Versioning](https://semver.org).
 
-## [QNow 1.0.0] — 2026-11
+## [QNow 1.1.0] — 2026-11-24
+
+Runs on free tiers. Phone OTP and Google sign-in are unchanged.
+
+### Changed
+- Map: Google Maps replaced by OpenStreetMap (osmdroid). No API key or billing needed.
+- Shop photos: stored as compressed JPEGs in Firestore instead of Firebase Storage (max 6 per shop, small thumbnail for lists).
+- Alerts: the 15-minute, 5-minute and your-turn alerts now come from the customer's phone, which follows the token live with a silent position notification.
+
+### Removed
+- Firebase Storage, Cloud Messaging and Cloud Functions
+
+## [QNow 1.0.0] — 2026-11-23
 
 A complete rebuild of the app as **QNow** (`com.sabil.qnow`).
 

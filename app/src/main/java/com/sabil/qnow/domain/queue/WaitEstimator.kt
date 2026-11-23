@@ -12,9 +12,6 @@ import kotlin.math.max
  * that service; idle chairs are free now. Each waiting token, in number order, takes the
  * chair that frees up first, and its wait is when that chair frees up. With one chair this is
  * the sum of the service times ahead; with more it spreads them across the chairs.
- *
- * The Cloud Function that sends the 15- and 5-minute alerts (functions/src/estimator.ts)
- * uses the same logic, so keep the two in step.
  */
 object WaitEstimator {
 

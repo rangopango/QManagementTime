@@ -62,16 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MapStyleOptions
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.MarkerComposable
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberUpdatedMarkerState
 import com.sabil.qnow.domain.model.Business
 import com.sabil.qnow.domain.model.BusinessCategory
 import com.sabil.qnow.domain.model.BusinessStatus
@@ -83,14 +73,14 @@ import com.sabil.qnow.ui.components.StatusPill
 import com.sabil.qnow.ui.components.formatMinutes
 import com.sabil.qnow.ui.theme.QNowTheme
 import com.sabil.qnow.ui.theme.Space
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.filter
+import com.sabil.qnow.ui.components.MapCamera
+import com.sabil.qnow.ui.components.MapPin
+import com.sabil.qnow.ui.components.OsmMap
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val camera = rememberCameraPositionState()
+
     val focus = LocalFocusManager.current
     val snackbar = remember { SnackbarHostState() }
     val dark = QNowTheme.extended.isDark
@@ -101,44 +91,39 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
     LaunchedEffect(Unit) {
         permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
-    LaunchedEffect(state.center) {
-        state.center?.let {
-            val zoom = if (state.hasLocation || state.query.isNotBlank()) 14f else 4.5f
-            camera.animate(CameraUpdateFactory.newCameraPosition(CameraPosition.fromLatLngZoom(LatLng(it.lat, it.lng), zoom)))
-        }
+    val camera = remember(state.center, state.cameraKey) {
+        state.center?.let { MapCamera(it, if (state.hasLocation || state.query.isNotBlank()) 14.0 else 4.5, state.cameraKey) }
     }
-    LaunchedEffect(camera) {
-        snapshotFlow { camera.isMoving to camera.position }
-            .filter { (moving, pos) -> !moving && pos.zoom >= 11f }
-            .debounce(600)
-            .collect { (_, pos) -> vm.onCameraSettled(GeoLocation(pos.target.latitude, pos.target.longitude)) }
+    val ext = QNowTheme.extended
+    val pins = state.businesses.mapNotNull { biz ->
+        val loc = biz.location ?: return@mapNotNull null
+        MapPin(
+            id = biz.id,
+            location = loc,
+            letter = biz.name.take(1).uppercase(),
+            ring = when (biz.status) {
+                BusinessStatus.OPEN -> ext.open
+                BusinessStatus.ON_BREAK -> ext.onBreak
+                BusinessStatus.CLOSED -> ext.closed
+            },
+            selected = state.selected?.business?.id == biz.id,
+        )
     }
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() }
     }
 
     Box(Modifier.fillMaxSize()) {
-        GoogleMap(
+        OsmMap(
+            camera = camera,
+            pins = pins,
             modifier = Modifier.fillMaxSize(),
-            cameraPositionState = camera,
-            properties = MapProperties(
-                isMyLocationEnabled = state.hasLocation,
-                mapStyleOptions = if (dark) MapStyleOptions(DARK_MAP_STYLE) else null,
-            ),
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false, mapToolbarEnabled = false),
-            onMapClick = { vm.select(null); focus.clearFocus() },
-        ) {
-            state.businesses.forEach { biz ->
-                val loc = biz.location ?: return@forEach
-                val selected = state.selected?.business?.id == biz.id
-                MarkerComposable(
-                    keys = arrayOf<Any>(biz.id, biz.status, selected),
-                    state = rememberUpdatedMarkerState(LatLng(loc.lat, loc.lng)),
-                    title = biz.name,
-                    onClick = { vm.select(biz.id); true },
-                ) { BusinessPin(biz, selected) }
-            }
-        }
+            showMyLocation = state.hasLocation,
+            dark = dark,
+            onPinClick = vm::select,
+            onMapTap = { vm.select(null); focus.clearFocus() },
+            onCameraSettled = { center, zoom -> if (zoom >= 11.0) vm.onCameraSettled(center) },
+        )
 
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = Space.md)) {
             SearchBar(
@@ -230,27 +215,6 @@ private fun CategoryChips(selected: BusinessCategory?, onSelect: (BusinessCatego
 }
 
 @Composable
-private fun BusinessPin(biz: Business, selected: Boolean) {
-    val ext = QNowTheme.extended
-    val ring = when (biz.status) {
-        BusinessStatus.OPEN -> ext.open
-        BusinessStatus.ON_BREAK -> ext.onBreak
-        BusinessStatus.CLOSED -> ext.closed
-    }
-    val size = if (selected) 52.dp else 40.dp
-    Box(
-        Modifier.size(size).clip(CircleShape).background(ext.heroGradient).border(3.dp, ring, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            biz.name.take(1).uppercase(),
-            color = Color.White,
-            style = if (selected) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
-        )
-    }
-}
-
-@Composable
 private fun PinCard(live: LiveBusiness, onOpen: () -> Unit) {
     val biz = live.business
     Surface(
@@ -262,7 +226,7 @@ private fun PinCard(live: LiveBusiness, onOpen: () -> Unit) {
     ) {
         Column(Modifier.padding(Space.lg)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                BusinessThumb(biz.photoUrls.firstOrNull(), biz.name, Modifier.size(56.dp))
+                BusinessThumb(biz.thumbnail, biz.name, Modifier.size(56.dp))
                 Spacer(Modifier.width(Space.md))
                 Column(Modifier.weight(1f)) {
                     Text(biz.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -296,13 +260,3 @@ fun Metric(icon: androidx.compose.ui.graphics.vector.ImageVector, value: String,
     }
 }
 
-private const val DARK_MAP_STYLE = """
-[{"elementType":"geometry","stylers":[{"color":"#1c1931"}]},
-{"elementType":"labels.text.fill","stylers":[{"color":"#b7b1cc"}]},
-{"elementType":"labels.text.stroke","stylers":[{"color":"#0f0d1a"}]},
-{"featureType":"poi","stylers":[{"visibility":"off"}]},
-{"featureType":"road","elementType":"geometry","stylers":[{"color":"#2f2a48"}]},
-{"featureType":"road","elementType":"labels.icon","stylers":[{"visibility":"off"}]},
-{"featureType":"transit","stylers":[{"visibility":"off"}]},
-{"featureType":"water","elementType":"geometry","stylers":[{"color":"#0b0914"}]}]
-"""

@@ -2,7 +2,6 @@ package com.sabil.qnow.ui.root
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.messaging.FirebaseMessaging
 import com.sabil.qnow.data.local.SecureStore
 import com.sabil.qnow.domain.model.UserRole
 import com.sabil.qnow.domain.repository.AuthRepository
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 sealed interface RootState {
@@ -43,7 +41,6 @@ class RootViewModel @Inject constructor(
         .distinctUntilChanged()
         .flatMapLatest { uid ->
             if (uid == null) return@flatMapLatest flowOf<RootState>(RootState.SignedOut)
-            registerPush()
             flow<RootState> {
                 // Show the cached (encrypted) role immediately, then follow the server copy.
                 secureStore.role(uid)?.let { emit(it.toState()) }
@@ -59,14 +56,6 @@ class RootViewModel @Inject constructor(
 
     private fun UserRole.toState() = if (this == UserRole.BUSINESS) RootState.Business else RootState.Customer
 
-    private fun registerPush() {
-        viewModelScope.launch {
-            runCatching {
-                val token = FirebaseMessaging.getInstance().token.await()
-                users.registerPushToken(token)
-            }
-        }
-    }
 
     fun signOut() {
         viewModelScope.launch { auth.signOut() }

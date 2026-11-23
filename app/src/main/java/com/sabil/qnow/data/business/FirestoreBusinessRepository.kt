@@ -6,8 +6,12 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.firestore.Blob
+import com.sabil.qnow.domain.model.Photo
+import com.sabil.qnow.domain.repository.PhotoDraft
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import com.sabil.qnow.data.firebase.Paths
 import com.sabil.qnow.data.firebase.business
 import com.sabil.qnow.data.firebase.observe
@@ -32,11 +36,13 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Firestore reads are the free tier's main limit, so shops show at most this many photos. */
+private const val MAX_PHOTOS = 6
+
 @Singleton
 class FirestoreBusinessRepository @Inject constructor(
     private val db: FirebaseFirestore,
     private val auth: FirebaseAuth,
-    private val storage: FirebaseStorage,
     private val compressor: ImageCompressor,
 ) : BusinessRepository {
 
@@ -74,13 +80,16 @@ class FirestoreBusinessRepository @Inject constructor(
     override suspend fun saveBusiness(draft: BusinessDraft) {
         val ownerId = uid()
         val ref = db.business(ownerId)
-        val uploaded = draft.newPhotos.map { uri ->
-            val bytes = compressor.compress(uri)
-            val photoRef = storage.reference.child("businessPhotos/$ownerId/${UUID.randomUUID()}.jpg")
-            photoRef.putBytes(bytes, StorageMetadata.Builder().setContentType("image/jpeg").build()).await()
-            photoRef.downloadUrl.await().toString()
+        // Photos are compressed JPEG bytes kept in Firestore, so no paid file storage is needed.
+        val photos = draft.photos.take(MAX_PHOTOS).map { p ->
+            when (p) {
+                is PhotoDraft.Saved -> Photo(p.photo.id, p.photo.bytes) to false
+                is PhotoDraft.New -> Photo(UUID.randomUUID().toString(), compressor.compress(p.uri)) to true
+            }
         }
+        val thumbnail = photos.firstOrNull()?.first?.bytes?.let { compressor.compress(it, ImageCompressor.THUMB_SIDE) }
         val existing = ref.get().await()
+        val removedIds = (existing.get("photoIds") as? List<*>).orEmpty().filterIsInstance<String>() - photos.map { it.first.id }.toSet()
         val geohash = GeoFireUtils.getGeoHashForLocation(FireGeo(draft.location.lat, draft.location.lng))
         val offset = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
         val chairs = draft.chairs.coerceIn(1, 50)
@@ -93,7 +102,8 @@ class FirestoreBusinessRepository @Inject constructor(
             "lat" to draft.location.lat,
             "lng" to draft.location.lng,
             "geohash" to geohash,
-            "photoUrls" to (draft.existingPhotoUrls + uploaded).take(8),
+            "photoIds" to photos.map { it.first.id },
+            "thumbnail" to thumbnail?.let { Blob.fromBytes(it) },
             "services" to draft.services.map { it.toMap() },
             "hours" to draft.hours.map { it.toMap() },
             "chairs" to chairs,
@@ -125,6 +135,23 @@ class FirestoreBusinessRepository @Inject constructor(
             batch.set(ref, public, SetOptions.merge())
             batch.set(db.collection(Paths.BUSINESS_PRIVATE).document(ownerId), private)
         }.await()
+        // One write per photo keeps each request small.
+        photos.filter { it.second }.forEach { (photo, _) ->
+            ref.collection(Paths.PHOTOS).document(photo.id).set(mapOf(
+                "data" to Blob.fromBytes(photo.bytes),
+                "createdAt" to FieldValue.serverTimestamp(),
+            )).await()
+        }
+        removedIds.forEach { ref.collection(Paths.PHOTOS).document(it).delete().await() }
+    }
+
+    override suspend fun photos(business: Business): List<Photo> = coroutineScope {
+        business.photoIds.map { id ->
+            async {
+                runCatching { db.business(business.id).collection(Paths.PHOTOS).document(id).get().await() }
+                    .getOrNull()?.getBlob("data")?.toBytes()?.let { Photo(id, it) }
+            }
+        }.awaitAll().filterNotNull()
     }
 
     override suspend fun setStatus(status: BusinessStatus) {

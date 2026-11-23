@@ -24,8 +24,7 @@ import com.sabil.qnow.domain.repository.LocationRepository
 import com.sabil.qnow.domain.repository.PromoRepository
 import com.sabil.qnow.domain.repository.QueueRepository
 import com.sabil.qnow.domain.repository.ReviewRepository
-import com.sabil.qnow.data.messaging.QueueAlert
-import com.sabil.qnow.data.messaging.QueueNotifier
+import com.sabil.qnow.data.messaging.TokenTracker
 import com.sabil.qnow.domain.model.TokenStatus
 import com.sabil.qnow.ui.navigation.BusinessRoute
 import com.sabil.qnow.ui.navigation.ReviewRoute
@@ -41,6 +40,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -76,6 +80,7 @@ class HomeViewModel @Inject constructor(
     businesses: BusinessRepository,
     queue: QueueRepository,
     observeLive: ObserveLiveBusiness,
+    private val tracker: TokenTracker,
 ) : ViewModel() {
 
     private val favouriteBusinesses: Flow<List<LiveBusiness>> = favourites.observeFavouriteIds()
@@ -91,6 +96,7 @@ class HomeViewModel @Inject constructor(
             combineAll(recent.map { ref -> queue.observeToken(ref.businessId, ref.tokenId).map { t -> t?.let { ActiveToken(ref, it) } } })
         }
         .map { list -> list.firstOrNull { it != null && it.token.status.isActive } }
+        .onEach { a -> a?.let { tracker.track(it.ref.businessId, it.ref.tokenId) } }
         .catch { emit(null) }
 
     val state: StateFlow<HomeUiState> = combine(
@@ -112,6 +118,8 @@ data class MapUiState(
     val searching: Boolean = false,
     val message: String? = null,
     val category: BusinessCategory? = null,
+    /** Bumped whenever the camera should move, even back to the same spot. */
+    val cameraKey: Int = 0,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -144,7 +152,7 @@ class MapViewModel @Inject constructor(
     fun onLocationPermission(granted: Boolean) {
         viewModelScope.launch {
             val here = if (granted) location.lastKnownLocation() else null
-            ui.update { it.copy(center = here ?: fallback, hasLocation = here != null) }
+            ui.update { it.copy(center = here ?: fallback, hasLocation = here != null, cameraKey = it.cameraKey + 1) }
             center.value = here ?: fallback
         }
     }
@@ -166,7 +174,7 @@ class MapViewModel @Inject constructor(
             if (found == null) {
                 ui.update { it.copy(searching = false, message = "Couldn't find \"$q\". Try a nearby area or city.") }
             } else {
-                ui.update { it.copy(searching = false, center = found) }
+                ui.update { it.copy(searching = false, center = found, cameraKey = it.cameraKey + 1) }
                 center.value = found
             }
         }
@@ -198,6 +206,7 @@ data class DetailUiState(
     val booking: Boolean = false,
     /** Id of this customer's live token here, if they already hold one. */
     val myToken: String? = null,
+    val photos: List<com.sabil.qnow.domain.model.Photo> = emptyList(),
 )
 
 sealed interface DetailEvent {
@@ -213,6 +222,7 @@ class BusinessDetailViewModel @Inject constructor(
     private val favourites: FavouritesRepository,
     reviews: ReviewRepository,
     private val queue: QueueRepository,
+    private val businesses: BusinessRepository,
 ) : ViewModel() {
     val businessId = savedState.toRoute<BusinessRoute>().businessId
 
@@ -229,16 +239,26 @@ class BusinessDetailViewModel @Inject constructor(
         .map { tokens -> tokens.firstOrNull { it != null && it.status.isActive }?.id }
         .catch { emit(null) }
 
-    private val extras = combine(selected, booking, myToken) { s, b, m -> Triple(s, b, m) }
+    private val live = observeLive(businessId).shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1)
+
+    /** Full photos are loaded once per change of the photo list, not on every queue update. */
+    private val photos = live.map { it?.business }.filterNotNull()
+        .distinctUntilChangedBy { it.photoIds }
+        .mapLatest { biz -> runCatching { businesses.photos(biz) }.getOrDefault(emptyList()) }
+        .onStart { emit(emptyList()) }
+
+    private val extras = combine(selected, booking, myToken, photos) { s, b, m, p -> Extras(s, b, m, p) }
+    private data class Extras(val selected: Service?, val booking: Boolean, val myToken: String?, val photos: List<com.sabil.qnow.domain.model.Photo>)
 
     val state: StateFlow<DetailUiState> = combine(
-        observeLive(businessId),
+        live,
         favourites.observeFavouriteIds().map { businessId in it }.catch { emit(false) },
         reviews.observeReviews(businessId).catch { emit(emptyList()) },
         extras,
-    ) { live, fav, revs, (sel, book, mine) ->
+    ) { live, fav, revs, (sel, book, mine, pics) ->
         DetailUiState(
             myToken = mine,
+            photos = pics,
             loading = false,
             live = live,
             favourite = fav,
@@ -291,11 +311,10 @@ class TokenViewModel @Inject constructor(
     savedState: SavedStateHandle,
     observeLive: ObserveLiveBusiness,
     private val queue: QueueRepository,
-    private val notifier: QueueNotifier,
+    private val tracker: TokenTracker,
 ) : ViewModel() {
     val route = savedState.toRoute<TokenRoute>()
     private val cancelling = MutableStateFlow(false)
-    private val alerted = mutableSetOf<QueueAlert>()
 
     private val reviewed = queue.observeMyTokens()
         .map { refs -> refs.firstOrNull { it.businessId == route.businessId && it.tokenId == route.tokenId }?.reviewed ?: false }
@@ -318,27 +337,9 @@ class TokenViewModel @Inject constructor(
             nowMillis = now,
         )
     }
-        .onEach(::localAlerts)
+        // Keep following the token in the background (alerts, live notification) while it's active.
+        .onEach { s -> if (s.token?.status?.isActive == true) tracker.track(route.businessId, route.tokenId) }
         .state(this, TokenUiState())
-
-    /**
-     * Fallback for when push isn't set up: alert while this screen's process is alive.
-     * Uses the same notification tag as the push, so the customer never sees a duplicate.
-     */
-    private fun localAlerts(s: TokenUiState) {
-        val token = s.token ?: return
-        val name = s.live?.business?.name ?: return
-        val due = when {
-            token.status == TokenStatus.SERVING || token.status == TokenStatus.GRACE -> QueueAlert.YOUR_TURN
-            token.status != TokenStatus.WAITING -> null
-            (s.estimate?.waitMinutes ?: Int.MAX_VALUE) <= 5 -> QueueAlert.FIVE_MINUTES
-            (s.estimate?.waitMinutes ?: Int.MAX_VALUE) <= 15 -> QueueAlert.FIFTEEN_MINUTES
-            else -> null
-        } ?: return
-        if (due in alerted) return
-        alerted += QueueAlert.entries.filter { it.ordinal <= due.ordinal }
-        notifier.show(due, route.businessId, route.tokenId, token.number, name)
-    }
 
     fun cancel() {
         cancelling.value = true

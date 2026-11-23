@@ -122,7 +122,7 @@ fun TokenScreen(
                             Icon(Icons.Rounded.NotificationsActive, null, tint = MaterialTheme.colorScheme.secondary)
                             Spacer(Modifier.width(Space.md))
                             Text(
-                                "We'll notify you at about 15 and 5 minutes to go, and when it's your turn.",
+                                "We'll notify you at about 15 and 5 minutes to go, and when it's your turn. Keep your phone online.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                             )

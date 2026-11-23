@@ -72,18 +72,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberUpdatedMarkerState
 import com.sabil.qnow.domain.model.BusinessCategory
 import com.sabil.qnow.domain.model.DayHours
 import com.sabil.qnow.domain.model.GeoLocation
+import com.sabil.qnow.ui.components.MapCamera
+import com.sabil.qnow.ui.components.MapPin
+import com.sabil.qnow.ui.components.OsmMap
 import com.sabil.qnow.ui.components.Pill
+import com.sabil.qnow.ui.theme.QNowTheme
 import com.sabil.qnow.ui.components.PrimaryButton
 import com.sabil.qnow.ui.components.QCard
 import com.sabil.qnow.ui.components.ShimmerList
@@ -230,23 +226,20 @@ private fun ShopStep(s: BusinessFormState, vm: BusinessFormViewModel) {
 
 @Composable
 private fun LocationStep(s: BusinessFormState, vm: BusinessFormViewModel) {
-    val camera = rememberCameraPositionState()
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
         if (r.values.any { it }) vm.useMyLocation()
     }
-    LaunchedEffect(s.location) {
-        s.location?.let { camera.animate(CameraUpdateFactory.newCameraPosition(CameraPosition.fromLatLngZoom(LatLng(it.lat, it.lng), 16f))) }
-    }
+
     Hint("Tap the map where your shop's entrance is. Customers use this pin to find you.")
     Box(Modifier.fillMaxWidth().height(300.dp).clip(MaterialTheme.shapes.large)) {
-        GoogleMap(
+        val ring = MaterialTheme.colorScheme.secondary
+        OsmMap(
+            camera = s.location?.let { MapCamera(it, 17.0) },
+            pins = listOfNotNull(s.location?.let { MapPin("shop", it, s.name.take(1).uppercase().ifEmpty { "Q" }, ring, selected = true) }),
             modifier = Modifier.fillMaxSize(),
-            cameraPositionState = camera,
-            uiSettings = MapUiSettings(zoomControlsEnabled = false, mapToolbarEnabled = false),
-            onMapClick = { vm.setLocation(GeoLocation(it.latitude, it.longitude)) },
-        ) {
-            s.location?.let { Marker(state = rememberUpdatedMarkerState(LatLng(it.lat, it.lng)), title = s.name) }
-        }
+            dark = QNowTheme.extended.isDark,
+            onMapTap = vm::setLocation,
+        )
         Surface(
             onClick = { permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
             shape = CircleShape,
@@ -338,7 +331,7 @@ private fun HoursStep(s: BusinessFormState, vm: BusinessFormViewModel) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CapacityStep(s: BusinessFormState, vm: BusinessFormViewModel) {
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(8)) { uris -> vm.addPhotos(uris) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PHOTOS)) { uris -> vm.addPhotos(uris) }
     QCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(Space.lg)) {
             Text("Chairs / staff serving at once", style = MaterialTheme.typography.titleSmall)
@@ -355,11 +348,11 @@ private fun CapacityStep(s: BusinessFormState, vm: BusinessFormViewModel) {
             Stepper(s.graceMinutes, 1, 15, suffix = " min") { vm.edit { copy(graceMinutes = it) } }
         }
     }
-    Text("Photos (${s.photoCount}/8)", style = MaterialTheme.typography.titleSmall)
+    Text("Photos (${s.photoCount}/$MAX_PHOTOS)", style = MaterialTheme.typography.titleSmall)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-        s.existingPhotos.forEach { url -> PhotoTile(url) { vm.removeExistingPhoto(url) } }
+        s.existingPhotos.forEach { p -> PhotoTile(p.bytes) { vm.removeExistingPhoto(p.id) } }
         s.newPhotos.forEach { uri -> PhotoTile(uri) { vm.removeNewPhoto(uri) } }
-        if (s.photoCount < 8) {
+        if (s.photoCount < MAX_PHOTOS) {
             Surface(
                 onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 shape = MaterialTheme.shapes.medium,
@@ -372,7 +365,7 @@ private fun CapacityStep(s: BusinessFormState, vm: BusinessFormViewModel) {
             }
         }
     }
-    Hint("Photos are resized and stripped of location data before upload.")
+    Hint("Photos are shrunk and stripped of location data before saving. Up to $MAX_PHOTOS.")
 }
 
 @Composable

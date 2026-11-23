@@ -28,8 +28,8 @@ enum class QueueAlert(val key: String) {
 }
 
 /**
- * Shows queue alerts. Pushes from the Cloud Function and the in-app fallback (while the token
- * screen is being watched) use the same tag and id, so the same alert never shows twice.
+ * Shows queue alerts on the phone itself. Each alert has a fixed tag and id per token, so the
+ * same alert never stacks up twice.
  */
 @Singleton
 class QueueNotifier @Inject constructor(
@@ -41,7 +41,41 @@ class QueueNotifier @Inject constructor(
             context.getString(R.string.channel_queue_alerts),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply { description = context.getString(R.string.channel_queue_alerts_desc) }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val live = NotificationChannel(LIVE_CHANNEL_ID, "Live token", NotificationManager.IMPORTANCE_LOW)
+            .apply { description = "Shows your place in line while you hold a token"; setShowBadge(false) }
+        context.getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(channel, live))
+    }
+
+    private fun openToken(businessId: String, tokenId: String) = PendingIntent.getActivity(
+        context,
+        tokenId.hashCode(),
+        Intent(context, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_BUSINESS_ID, businessId)
+            .putExtra(MainActivity.EXTRA_TOKEN_ID, tokenId)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    /** Silent, ongoing notification with the live position. Required for the tracking service. */
+    fun ongoing(businessId: String, tokenId: String, title: String, text: String) =
+        NotificationCompat.Builder(context, LIVE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.brand_primary))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setContentIntent(openToken(businessId, tokenId))
+            .build()
+
+    fun updateOngoing(businessId: String, tokenId: String, title: String, text: String) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        @Suppress("MissingPermission")
+        NotificationManagerCompat.from(context).notify(ONGOING_ID, ongoing(businessId, tokenId, title, text))
     }
 
     fun show(alert: QueueAlert, businessId: String, tokenId: String, number: Int, businessName: String) {
@@ -79,5 +113,7 @@ class QueueNotifier @Inject constructor(
 
     companion object {
         const val CHANNEL_ID = "queue_alerts"
+        const val LIVE_CHANNEL_ID = "live_token"
+        const val ONGOING_ID = 4207
     }
 }

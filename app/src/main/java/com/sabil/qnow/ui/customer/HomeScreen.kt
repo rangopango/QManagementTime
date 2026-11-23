@@ -317,7 +317,7 @@ fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, onClick: () 
     val biz = live.business
     QCard(modifier.fillMaxWidth(), onClick = onClick) {
         Row(Modifier.padding(Space.md), verticalAlignment = Alignment.CenterVertically) {
-            BusinessThumb(biz.photoUrls.firstOrNull(), biz.name, Modifier.size(64.dp))
+            BusinessThumb(biz.thumbnail, biz.name, Modifier.size(64.dp))
             Spacer(Modifier.width(Space.md))
             Column(Modifier.weight(1f)) {
                 Text(biz.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -349,12 +349,12 @@ fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, onClick: () 
     }
 }
 
-/** Shop photo, or a gradient monogram when there isn't one. */
+/** Shop thumbnail, or a gradient monogram when there isn't one. */
 @Composable
-fun BusinessThumb(url: String?, name: String, modifier: Modifier = Modifier) {
+fun BusinessThumb(thumbnail: ByteArray?, name: String, modifier: Modifier = Modifier) {
     Box(modifier.clip(MaterialTheme.shapes.medium).background(QNowTheme.extended.heroGradient), contentAlignment = Alignment.Center) {
-        if (url != null) {
-            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().aspectRatio(1f))
+        if (thumbnail != null) {
+            AsyncImage(thumbnail, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().aspectRatio(1f))
         } else {
             Text(name.take(1).uppercase(), style = MaterialTheme.typography.headlineSmall, color = Color.White)
         }
