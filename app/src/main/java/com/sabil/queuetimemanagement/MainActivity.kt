@@ -38,6 +38,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReport.install(this)
+        val crash = CrashReport.read(this)
+        if (crash != null) {
+            CrashReport.show(this, crash)
+            return
+        }
         setContent { SalonQueueApp(viewModel) }
     }
 }

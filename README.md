@@ -8,7 +8,7 @@ An Android app for booking a seat at a barber shop and following the live queue,
 
 [![Download APK](https://img.shields.io/badge/Download-APK-176B55?style=for-the-badge&logo=android&logoColor=white)](https://github.com/rangopango/QManagementTime/raw/main/downloads/QManagementTime.apk)
 
-![Version 1.0](https://img.shields.io/badge/version-1.0-176B55)
+![Version 1.0.1](https://img.shields.io/badge/version-1.0.1-176B55)
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)
@@ -19,11 +19,11 @@ An Android app for booking a seat at a barber shop and following the live queue,
 
 ## Download and install
 
-1. On an Android phone (8.0 or newer), tap **[Download APK](https://github.com/rangopango/QManagementTime/raw/main/downloads/QManagementTime.apk)** (1.4 MB).
+1. On an Android phone (8.0 or newer), tap **[Download APK](https://github.com/rangopango/QManagementTime/raw/main/downloads/QManagementTime.apk)** (7.6 MB).
 2. Open the downloaded file. If Android asks, allow your browser to **install unknown apps**.
 3. Tap **Install**, then open **QManagementTime**.
 
-The APK isn't on Google Play, so Android may show a warning before installing. Its SHA-256 checksum is `3C5ADF08AB0FAA263EC46CC90C79081E12B21BEF3107A39241455AD10AD319B8`.
+The APK isn't on Google Play, so Android may show a warning before installing. Its SHA-256 checksum is `65A0595A5608E99DE8B7BF6A24C8A1473E303761354F709AB7201E667B7D1F76`.
 
 ## Features
 
