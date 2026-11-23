@@ -5,11 +5,11 @@
 <h3>Live queue management for barbers, salons and parlours.<br/>Built to grow into car washes, clinics and any business with a line.</h3>
 
 <p>
-  <a href="https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.0.apk"><img src="https://img.shields.io/badge/Download-QNow%201.1.0-5B3DF5?style=for-the-badge&logo=android&logoColor=white" alt="Download QNow 1.1.0" /></a>
+  <a href="https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.1.apk"><img src="https://img.shields.io/badge/Download-QNow%201.1.1-5B3DF5?style=for-the-badge&logo=android&logoColor=white" alt="Download QNow 1.1.1" /></a>
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.0-5B3DF5" alt="Version 1.1.0" />
+  <img src="https://img.shields.io/badge/version-1.1.1-5B3DF5" alt="Version 1.1.1" />
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin" />
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
@@ -36,17 +36,17 @@
 
 Waiting rooms waste everyone's time. With QNow, customers book a token from their phone, watch the queue move in real time, and get a nudge when it's time to head over. Businesses run the whole line from one screen — including walk-ins who don't have the app.
 
-> [!IMPORTANT]
-> **Developer preview.** The app connects to its own Firebase project, which each build must be configured with (see [Build it yourself](#-build-it-yourself)). A build without that config opens to a setup screen instead of the app.
+> [!NOTE]
+> **Early release.** The download connects to the live QNow service. To run your own copy, see [Build it yourself](#-build-it-yourself).
 
 ## 📥 Download
 
 | | |
 |---|---|
-| **Latest** | [**QNow 1.1.0**](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.0.apk) |
+| **Latest** | [**QNow 1.1.1**](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.1.apk) |
 | **Size** | 19.8 MB |
 | **Requires** | Android 8.0 (Oreo) or newer |
-| **SHA-256** | `C4E4EBBF1DA85FAA7CC4EA42A7391108172A2766E452DCE9FE4CA0E1CC98A56C` |
+| **SHA-256** | `E2CD480C54DC83378096BEA9887DCD817293E510280E982CB25B42FD0E3F4520` |
 
 1. On your Android phone, tap the download link above.
 2. Open the downloaded file. If Android asks, allow your browser to **install unknown apps**.
@@ -176,7 +176,18 @@ firebase/            Firestore security rules and indexes
 The newest version is always first. Tap a version to see what changed and download it.
 
 <details open>
-<summary><b>QNow 1.1.0</b> · latest · November 2026</summary>
+<summary><b>QNow 1.1.1</b> · latest · November 2026</summary>
+
+<br/>
+
+First build connected to the live QNow service: sign-in, shops and live queues now work.
+
+**[⬇ Download QNow 1.1.1](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.1.apk)** · Android 8.0+ · SHA-256 `E2CD480C54DC83378096BEA9887DCD817293E510280E982CB25B42FD0E3F4520`
+
+</details>
+
+<details>
+<summary><b>QNow 1.1.0</b> · November 2026</summary>
 
 <br/>
 

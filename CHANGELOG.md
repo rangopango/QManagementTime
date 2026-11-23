@@ -2,6 +2,11 @@
 
 All notable changes to this project. Newest first. Versions follow [Semantic Versioning](https://semver.org).
 
+## [QNow 1.1.1] — 2026-11-24
+
+### Changed
+- Connected to the live QNow Firebase project: sign-in, shops and live queues now work in the published APK.
+
 ## [QNow 1.1.0] — 2026-11-24
 
 Runs on free tiers. Phone OTP and Google sign-in are unchanged.
