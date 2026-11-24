@@ -108,6 +108,7 @@ class FirestoreBusinessRepository @Inject constructor(
             "hours" to draft.hours.map { it.toMap() },
             "chairs" to chairs,
             "graceMinutes" to draft.graceMinutes.coerceIn(1, 15),
+            "currency" to draft.currencyCode,
             "publicPhone" to if (draft.showPhonePublicly) draft.phone.trim() else null,
             "utcOffsetMinutes" to offset,
             "updatedAt" to FieldValue.serverTimestamp(),

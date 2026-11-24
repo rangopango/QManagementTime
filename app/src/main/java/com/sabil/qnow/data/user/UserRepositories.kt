@@ -1,6 +1,9 @@
 package com.sabil.qnow.data.user
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
+import com.google.firebase.auth.UserProfileChangeRequest
+import com.sabil.qnow.domain.repository.RecentLoginRequiredException
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -55,6 +58,64 @@ class FirestoreUserRepository @Inject constructor(
         secureStore.putRole(uid, role)
     }
 
+    override fun observeProfile(): Flow<com.sabil.qnow.domain.model.CustomerProfile> {
+        val uid = auth.currentUser?.uid ?: return kotlinx.coroutines.flow.flowOf(com.sabil.qnow.domain.model.CustomerProfile(null, null, emptyList()))
+        return db.collection(Paths.USERS).document(uid).observe().map { snap ->
+            val gender = snap?.getString("gender")?.let { g -> com.sabil.qnow.domain.model.Gender.entries.firstOrNull { it.name == g } }
+            val family = (snap?.get("family") as? List<*>).orEmpty().mapNotNull { m ->
+                (m as? Map<*, *>)?.let {
+                    com.sabil.qnow.domain.model.FamilyMember(
+                        id = it["id"] as? String ?: return@mapNotNull null,
+                        name = it["name"] as? String ?: "",
+                        gender = com.sabil.qnow.domain.model.Gender.entries.firstOrNull { g -> g.name == it["gender"] } ?: com.sabil.qnow.domain.model.Gender.OTHER,
+                        isChild = it["child"] as? Boolean ?: false,
+                        age = (it["age"] as? Number)?.toInt(),
+                    )
+                }
+            }
+            com.sabil.qnow.domain.model.CustomerProfile(snap?.getString("displayName") ?: auth.currentUser?.displayName, gender, family)
+        }
+    }
+
+    override suspend fun saveProfile(gender: com.sabil.qnow.domain.model.Gender?, family: List<com.sabil.qnow.domain.model.FamilyMember>) {
+        val uid = auth.currentUser?.uid ?: error("Not signed in")
+        db.collection(Paths.USERS).document(uid).update(mapOf(
+            "gender" to gender?.name,
+            "family" to family.take(10).map { m ->
+                mapOf("id" to m.id, "name" to m.name.trim().take(30), "gender" to m.gender.name, "child" to m.isChild, "age" to m.age)
+            },
+        )).await()
+    }
+
+    override suspend fun updateDisplayName(name: String) {
+        val user = auth.currentUser ?: error("Not signed in")
+        val clean = name.trim().take(40)
+        user.updateProfile(UserProfileChangeRequest.Builder().setDisplayName(clean).build()).await()
+        db.collection(Paths.USERS).document(user.uid).update("displayName", clean).await()
+    }
+
+    override suspend fun deleteCustomerAccount() {
+        val user = auth.currentUser ?: error("Not signed in")
+        // Firebase only deletes a login that signed in within the last few minutes. Check first,
+        // so data isn't removed while the login itself is left behind.
+        val lastSignIn = user.metadata?.lastSignInTimestamp ?: 0L
+        if (System.currentTimeMillis() - lastSignIn > 4 * 60_000L) throw RecentLoginRequiredException()
+
+        val me = db.collection(Paths.USERS).document(user.uid)
+        for (sub in listOf(Paths.FAVOURITES, Paths.MY_TOKENS, Paths.ACTIVE_TOKENS)) {
+            me.collection(sub).get().await().documents.chunked(400).forEach { chunk ->
+                db.runBatch { b -> chunk.forEach { b.delete(it.reference) } }.await()
+            }
+        }
+        me.delete().await()
+        secureStore.clear()
+        try {
+            user.delete().await()
+        } catch (e: FirebaseAuthRecentLoginRequiredException) {
+            auth.signOut()
+            throw RecentLoginRequiredException()
+        }
+    }
 }
 
 @Singleton
@@ -109,6 +170,37 @@ class FirestoreReviewRepository @Inject constructor(
                 "reviewed", true,
             )
         }.await()
+    }
+}
+
+@Singleton
+class FirestoreSupportRepository @Inject constructor(
+    private val db: FirebaseFirestore,
+    private val auth: FirebaseAuth,
+) : com.sabil.qnow.domain.repository.SupportRepository {
+    override suspend fun submit(category: String, message: String) {
+        val uid = auth.currentUser?.uid ?: error("Not signed in")
+        db.collection("supportTickets").add(mapOf(
+            "uid" to uid,
+            "category" to category.take(40),
+            "message" to message.trim().take(2000),
+            "status" to "OPEN",
+            "appVersion" to com.sabil.qnow.BuildConfig.VERSION_NAME,
+            "device" to "Android {android.os.Build.VERSION.RELEASE} · {android.os.Build.MANUFACTURER} {android.os.Build.MODEL}".take(80),
+            "createdAt" to FieldValue.serverTimestamp(),
+        )).await()
+    }
+
+    override fun observeMine(): Flow<List<com.sabil.qnow.domain.repository.SupportTicket>> {
+        val uid = auth.currentUser?.uid ?: return kotlinx.coroutines.flow.flowOf(emptyList())
+        return db.collection("supportTickets").whereEqualTo("uid", uid).limit(20).observe().map { snap ->
+            snap.documents.map {
+                com.sabil.qnow.domain.repository.SupportTicket(
+                    it.id, it.getString("category").orEmpty(), it.getString("message").orEmpty(),
+                    it.getString("status") ?: "OPEN", it.getTimestamp("createdAt")?.toDate()?.time ?: 0, it.getString("reply"),
+                )
+            }.sortedByDescending { it.createdAtMillis }
+        }
     }
 }
 

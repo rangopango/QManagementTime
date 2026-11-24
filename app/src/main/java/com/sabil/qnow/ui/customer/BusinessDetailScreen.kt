@@ -6,6 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -184,11 +187,30 @@ private fun DetailContent(live: LiveBusiness, state: DetailUiState, vm: Business
         item {
             SectionHeader("Services & rates", Modifier.padding(start = Space.screen, end = Space.screen, top = Space.xl, bottom = Space.sm))
         }
+        if (state.people.size > 1) {
+            item {
+                Column(Modifier.padding(horizontal = Space.screen)) {
+                    Text("Booking for", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Space.xs))
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                        state.people.forEach { p ->
+                            FilterChip(
+                                selected = state.person?.id == p.id,
+                                onClick = { vm.selectPerson(p.id) },
+                                label = { Text(if (p.isChild) "${p.name} (child)" else p.name) },
+                                shape = CircleShape,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(Space.sm))
+                }
+            }
+        }
         if (biz.services.isEmpty()) {
             item { Text("No services listed yet.", Modifier.padding(horizontal = Space.screen), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        items(biz.services, key = { it.id }) { s ->
-            ServiceRow(s, selected = state.selectedService?.id == s.id, onClick = { vm.selectService(s) })
+        items(state.services, key = { it.id }) { s ->
+            ServiceRow(s, biz.currencyCode, selected = state.selectedService?.id == s.id, onClick = { vm.selectService(s) })
         }
         item { SectionHeader("Opening hours", Modifier.padding(start = Space.screen, end = Space.screen, top = Space.xl, bottom = Space.sm)) }
         item { HoursCard(biz, Modifier.padding(horizontal = Space.screen)) }
@@ -287,7 +309,7 @@ fun LiveQueueCard(live: LiveBusiness, modifier: Modifier = Modifier, highlight: 
 }
 
 @Composable
-private fun ServiceRow(s: Service, selected: Boolean, onClick: () -> Unit) {
+private fun ServiceRow(s: Service, currencyCode: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
@@ -304,7 +326,7 @@ private fun ServiceRow(s: Service, selected: Boolean, onClick: () -> Unit) {
                     Text(" ~${s.durationMinutes} min", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(formatPrice(s.price), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = Space.sm))
+            Text(formatPrice(s.price, currencyCode), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = Space.sm))
         }
     }
 }

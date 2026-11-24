@@ -38,7 +38,8 @@ service cloud.firestore {
 
     // Whole days since 1970-01-01 in the business's own time zone, from the server clock.
     function serverDayKey(offsetMinutes) {
-      return math.floor((request.time.toMillis() + offsetMinutes * 60000) / 86400000);
+      // int(): math.floor returns a float (e.g. 20781.0), which would break the '{day}-{number}' token id.
+      return int(math.floor((request.time.toMillis() + offsetMinutes * 60000) / 86400000));
     }
 
     // The counter moved forward by exactly one (or restarted at 1 on a new day), and the
@@ -59,7 +60,7 @@ service cloud.firestore {
       return d.keys().hasOnly([
           'ownerId', 'name', 'category', 'address', 'lat', 'lng', 'geohash', 'photoIds', 'thumbnail',
           'services', 'hours', 'chairs', 'activeChairs', 'status', 'publicPhone', 'ratingSum',
-          'ratingCount', 'utcOffsetMinutes', 'graceMinutes', 'queue', 'createdAt', 'updatedAt'])
+          'ratingCount', 'utcOffsetMinutes', 'graceMinutes', 'queue', 'createdAt', 'updatedAt', 'currency'])
         && isShortString(d.name, 80) && d.name.size() > 0
         && d.category in ['BARBER', 'SALON', 'PARLOUR', 'CAR_WASH', 'CLINIC', 'OTHER']
         && isShortString(d.address, 300)
@@ -75,7 +76,8 @@ service cloud.firestore {
         && d.status in ['OPEN', 'ON_BREAK', 'CLOSED']
         && optionalShortString(d.get('publicPhone', null), 20)
         && d.utcOffsetMinutes is int && d.utcOffsetMinutes >= -720 && d.utcOffsetMinutes <= 840
-        && d.graceMinutes is int && d.graceMinutes >= 1 && d.graceMinutes <= 15;
+        && d.graceMinutes is int && d.graceMinutes >= 1 && d.graceMinutes <= 15
+        && (d.get('currency', null) == null || (d.currency is string && d.currency.size() == 3));
     }
 
     // ---------- users (private to each person) ----------
@@ -87,10 +89,13 @@ service cloud.firestore {
         && optionalShortString(data().get('displayName', null), 40);
       // The role can never change after it is chosen.
       allow update: if isUser(uid)
-        && onlyChanged(['fcmTokens', 'displayName'])
+        && onlyChanged(['fcmTokens', 'displayName', 'gender', 'family'])
+        && (!changed('gender') || data().gender == null || data().gender in ['MALE', 'FEMALE', 'OTHER'])
+        && (!changed('family') || (data().family is list && data().family.size() <= 10))
         && (!changed('fcmTokens') || (data().fcmTokens is list && data().fcmTokens.size() <= 20))
         && (!changed('displayName') || optionalShortString(data().displayName, 40));
-      allow delete: if false;
+      // People can delete their own account data.
+      allow delete: if isUser(uid);
 
       match /favourites/{bizId} {
         allow read, delete: if isUser(uid);
@@ -223,6 +228,22 @@ service cloud.firestore {
         && isShortString(data().phone, 20)
         && data().showPhonePublicly is bool;
       allow delete: if false;
+    }
+
+    // ---------- customer helpline ----------
+    // People can file a request and see their own; only the QNow team reads them all (console).
+    match /supportTickets/{ticketId} {
+      allow create: if signedIn()
+        && data().keys().hasOnly(['uid', 'category', 'message', 'status', 'appVersion', 'device', 'createdAt'])
+        && data().uid == request.auth.uid
+        && isShortString(data().category, 40)
+        && isShortString(data().message, 2000) && data().message.size() > 0
+        && data().status == 'OPEN'
+        && isShortString(data().appVersion, 20)
+        && isShortString(data().device, 80)
+        && data().createdAt == request.time;
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // ---------- home banners (managed from the console) ----------

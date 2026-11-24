@@ -24,7 +24,43 @@ data class Service(
     val name: String,
     val price: Double,
     val durationMinutes: Int,
+    /** Who the service is meant for, so customers see what fits the person they book for. */
+    val audience: Audience = Audience.ALL,
 )
+
+enum class Audience(val label: String) { ALL("Everyone"), MEN("Men"), WOMEN("Women"), KIDS("Kids") }
+
+enum class Gender(val label: String) { MALE("Male"), FEMALE("Female"), OTHER("Other") }
+
+/** Someone a customer books for: themselves, a partner, a parent, or a child. */
+data class FamilyMember(
+    val id: String,
+    val name: String,
+    val gender: Gender,
+    val isChild: Boolean,
+    val age: Int? = null,
+) {
+    /** Services that suit this person. */
+    fun fits(s: Service) = s.audience == Audience.ALL || when {
+        isChild -> s.audience == Audience.KIDS
+        gender == Gender.MALE -> s.audience == Audience.MEN
+        gender == Gender.FEMALE -> s.audience == Audience.WOMEN
+        else -> s.audience != Audience.KIDS
+    }
+}
+
+/** The customer's own details plus the people they book for. Private to the customer. */
+data class CustomerProfile(
+    val name: String?,
+    val gender: Gender?,
+    val family: List<FamilyMember>,
+) {
+    /** "Me" first, then everyone else. */
+    fun bookable(): List<FamilyMember> =
+        listOf(FamilyMember(SELF_ID, name?.substringBefore(' ')?.ifBlank { null } ?: "Me", gender ?: Gender.OTHER, false)) + family
+
+    companion object { const val SELF_ID = "self" }
+}
 
 /** Opening hours for one day, in minutes after midnight (local time of the business). */
 data class DayHours(
@@ -66,6 +102,8 @@ data class Business(
     val utcOffsetMinutes: Int,
     val graceMinutes: Int,
     val queue: QueueCounter,
+    /** ISO 4217 code of the shop's country (from its map pin), e.g. INR. Prices are shown in it. */
+    val currencyCode: String = "INR",
 ) {
     val rating: Double get() = if (ratingCount == 0L) 0.0 else ratingSum.toDouble() / ratingCount
     val averageServiceMinutes: Int

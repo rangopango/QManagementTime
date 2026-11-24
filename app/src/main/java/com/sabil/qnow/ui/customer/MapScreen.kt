@@ -100,7 +100,7 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
         MapPin(
             id = biz.id,
             location = loc,
-            letter = biz.name.take(1).uppercase(),
+            letter = initialOf(biz.name),
             ring = when (biz.status) {
                 BusinessStatus.OPEN -> ext.open
                 BusinessStatus.ON_BREAK -> ext.onBreak
@@ -108,6 +108,8 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
             },
             selected = state.selected?.business?.id == biz.id,
         )
+    } + state.outside.map { o ->
+        MapPin(o.id, o.location, initialOf(o.name), Color(0xFF9E9AAE), selected = state.selectedOutside?.id == o.id, fill = Color(0xFF6E6A80))
     }
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() }
@@ -120,7 +122,7 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
             modifier = Modifier.fillMaxSize(),
             showMyLocation = state.hasLocation,
             dark = dark,
-            onPinClick = vm::select,
+            onPinClick = { id -> if (id.startsWith("osm-")) vm.selectOutside(id) else vm.select(id) },
             onMapTap = { vm.select(null); focus.clearFocus() },
             onCameraSettled = { center, zoom -> if (zoom >= 11.0) vm.onCameraSettled(center) },
         )
@@ -155,7 +157,14 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
             ) {
                 state.selected?.let { PinCard(it, onOpen = { onBusiness(it.business.id) }) }
             }
-            if (state.selected == null && state.businesses.isEmpty() && state.center != null) {
+            AnimatedVisibility(
+                state.selectedOutside != null,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+            ) {
+                state.selectedOutside?.let { OutsideCard(it) }
+            }
+            if (state.selected == null && state.selectedOutside == null && state.businesses.isEmpty() && state.outside.isEmpty() && state.center != null) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLowest, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         "No QNow shops in this area yet. Try searching another area.",
@@ -241,6 +250,44 @@ private fun PinCard(live: LiveBusiness, onOpen: () -> Unit) {
             }
             Spacer(Modifier.height(Space.md))
             PrimaryButton("View & book", onClick = onOpen, modifier = Modifier.fillMaxWidth(), height = 48.dp)
+        }
+    }
+}
+
+/** Card for a real shop from public map data that hasn't joined QNow yet. */
+@Composable
+private fun OutsideCard(shop: com.sabil.qnow.data.places.OutsideShop) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Space.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(shop.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOfNotNull(shop.kind, shop.address).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                com.sabil.qnow.ui.components.Pill("Not on QNow yet", MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(Space.sm))
+            Text(
+                "This shop is listed on public maps but doesn't take QNow tokens yet, so there's no live queue.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Space.md))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                com.sabil.qnow.ui.components.SecondaryButton("Directions", onClick = {
+                    val uri = android.net.Uri.parse("geo:0,0?q={shop.location.lat},{shop.location.lng}({android.net.Uri.encode(shop.name)})")
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
+                }, modifier = Modifier.weight(1f))
+                com.sabil.qnow.ui.components.SecondaryButton("Invite to QNow", onClick = {
+                    val text = "Hi {shop.name}! Your customers could book a live token on QNow and skip the wait. https://github.com/rangopango/QManagementTime"
+                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), "Invite"))
+                }, modifier = Modifier.weight(1f))
+            }
         }
     }
 }

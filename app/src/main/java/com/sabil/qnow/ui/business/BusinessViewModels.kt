@@ -95,6 +95,8 @@ data class BusinessFormState(
     val hours: List<DayHours> = (1..7).map { DayHours(it, open = it != 7) },
     val chairs: Int = 1,
     val graceMinutes: Int = 3,
+    /** Set from the country of the map pin; INR until a pin is dropped. */
+    val currencyCode: String = "INR",
     val existingPhotos: List<com.sabil.qnow.domain.model.Photo> = emptyList(),
     val newPhotos: List<Uri> = emptyList(),
     val saving: Boolean = false,
@@ -158,11 +160,12 @@ class BusinessFormViewModel @Inject constructor(
                     hours = if (existing.hours.isEmpty()) s.hours else existing.hours.sortedBy { it.day },
                     chairs = existing.chairs,
                     graceMinutes = existing.graceMinutes,
+                    currencyCode = existing.currencyCode,
                     existingPhotos = runCatching { businesses.photos(existing) }.getOrDefault(emptyList()),
                 )
             }
             if (existing == null) {
-                location.lastKnownLocation()?.let { here -> _state.update { if (it.location == null) it.copy(location = here) else it } }
+                location.lastKnownLocation()?.let { here -> if (_state.value.location == null) setLocation(here) }
             }
         }
     }
@@ -174,6 +177,8 @@ class BusinessFormViewModel @Inject constructor(
     fun setLocation(loc: GeoLocation) {
         _state.update { it.copy(location = loc, error = null) }
         viewModelScope.launch {
+            val currency = com.sabil.qnow.ui.components.Money.currencyForCountry(location.countryCode(loc))
+            _state.update { it.copy(currencyCode = currency) }
             val address = location.reverseGeocode(loc) ?: return@launch
             _state.update { if (it.address.isBlank()) it.copy(address = address) else it }
         }
@@ -221,7 +226,7 @@ class BusinessFormViewModel @Inject constructor(
                         name = s.name, category = s.category, address = s.address, location = s.location!!,
                         photos = s.existingPhotos.map { PhotoDraft.Saved(it) } + s.newPhotos.map { PhotoDraft.New(it) },
                         services = s.services.mapNotNull { it.toService() }, hours = s.hours,
-                        chairs = s.chairs, graceMinutes = s.graceMinutes,
+                        chairs = s.chairs, graceMinutes = s.graceMinutes, currencyCode = s.currencyCode,
                     ),
                 )
             }.onSuccess {

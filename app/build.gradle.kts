@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -13,6 +15,12 @@ if (file("google-services.json").exists()) {
 }
 
 
+// Google Maps key, kept out of the public repo in local.properties (MAPS_API_KEY=...).
+// Without it the app falls back to the free OpenStreetMap view.
+val mapsKey: String = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}.getProperty("MAPS_API_KEY", "")
+
 android {
     namespace = "com.sabil.qnow"
     compileSdk {
@@ -23,10 +31,12 @@ android {
         applicationId = "com.sabil.qnow"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["MAPS_API_KEY"] = mapsKey
+        buildConfigField("boolean", "GOOGLE_MAPS", mapsKey.isNotBlank().toString())
     }
 
     buildTypes {
@@ -40,6 +50,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    androidResources {
+        // The hair model must stay uncompressed so it can be memory-mapped.
+        noCompress += "tflite"
     }
     buildFeatures {
         compose = true
@@ -76,11 +90,19 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.ai)
+    implementation(libs.firebase.appcheck.playintegrity)
+    debugImplementation(libs.firebase.appcheck.debug)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
 
     implementation(libs.osmdroid)
+    implementation(libs.maps.compose)
+    implementation(libs.mediapipe.vision)
+    implementation(libs.mlkit.face)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
     implementation(libs.play.services.location)
     implementation(libs.geofire.common)
     implementation(libs.coil.compose)

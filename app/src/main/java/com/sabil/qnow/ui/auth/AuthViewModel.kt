@@ -38,7 +38,11 @@ data class AuthUiState(
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val auth: AuthRepository,
+    private val demo: com.sabil.qnow.data.demo.DemoMode,
 ) : ViewModel() {
+
+    /** Opens the prototype world with bot shops and customers (restarts the app). */
+    fun tryDemo(role: UserRole) = demo.enter(role)
 
     private val _state = MutableStateFlow(AuthUiState())
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
@@ -86,12 +90,27 @@ class AuthViewModel @Inject constructor(
     }
 
     // Messages never echo back the phone number or raw server text.
-    private fun friendly(e: Throwable): String = when (e) {
-        is FirebaseAuthInvalidCredentialsException -> "That code or number doesn't look right. Please check and try again."
-        is FirebaseTooManyRequestsException -> "Too many attempts. Please wait a little and try again."
-        is FirebaseNetworkException -> "No internet connection. Check your network and try again."
-        is com.sabil.qnow.data.auth.GoogleSignInUnavailableException -> e.message!!
-        else -> "Sign-in didn't work. Please try again."
+    private fun friendly(e: Throwable): String {
+        val text = when (e) {
+            is FirebaseAuthInvalidCredentialsException -> "That code or number doesn't look right. Please check and try again."
+            is FirebaseTooManyRequestsException -> "Too many attempts. Please wait a little and try again."
+            is FirebaseNetworkException -> "No internet connection. Check your network and try again."
+            is com.sabil.qnow.data.auth.GoogleSignInUnavailableException -> e.message!!
+            is androidx.credentials.exceptions.NoCredentialException -> "No Google account found on this device. Add one in Settings, or use your phone number."
+            else -> "Sign-in didn't work. Please try again."
+        }
+        return "$text\n(Error: ${errorCode(e)})"
+    }
+
+    /**
+     * A short code for support, e.g. "ERROR_APP_NOT_AUTHORIZED" or "GetCredentialUnknownException".
+     * Only the error type and code are shown: never the phone number or token.
+     */
+    private fun errorCode(e: Throwable): String {
+        val firebaseCode = (e as? com.google.firebase.auth.FirebaseAuthException)?.errorCode
+        val credentialType = (e as? androidx.credentials.exceptions.GetCredentialException)?.type?.substringAfterLast('.')
+        val gmsStatus = Regex("""\b(\d{2,5}):""").find(e.message.orEmpty())?.groupValues?.get(1)
+        return listOfNotNull(firebaseCode ?: credentialType ?: e.javaClass.simpleName, gmsStatus).joinToString(" ")
     }
 }
 

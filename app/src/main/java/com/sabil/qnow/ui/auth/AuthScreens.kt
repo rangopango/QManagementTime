@@ -44,6 +44,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -144,6 +148,10 @@ fun AuthScreen(vm: AuthViewModel = hiltViewModel()) {
                             Spacer(Modifier.width(Space.md))
                             Text(if (state.googleLoading) "Connecting…" else "Continue with Google", style = MaterialTheme.typography.labelLarge)
                         }
+                    }
+                    if (state.verificationId == null) {
+                        Spacer(Modifier.height(Space.sm))
+                        DemoEntry(onPick = vm::tryDemo, modifier = Modifier.align(Alignment.CenterHorizontally))
                     }
                     Spacer(Modifier.height(Space.lg))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -337,8 +345,32 @@ private fun RoleCard(icon: ImageVector, title: String, body: String, accent: Col
     }
 }
 
+/** "Just looking?" link that opens the demo as a customer or a business owner. */
 @Composable
-fun FirebaseNotConfiguredScreen() {
+fun DemoEntry(onPick: (UserRole) -> Unit, modifier: Modifier = Modifier, light: Boolean = false) {
+    var open by remember { mutableStateOf(false) }
+    TextButton(onClick = { open = true }, modifier = modifier) {
+        Text(
+            "Just looking? Try the demo",
+            color = if (light) Color.White else MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Try QNow with demo data") },
+            text = {
+                Text("Explore a pretend town with bot shops and bot customers moving through live queues. Nothing is saved, and you can exit any time from the menu.")
+            },
+            confirmButton = { TextButton(onClick = { open = false; onPick(UserRole.CUSTOMER) }) { Text("As a customer") } },
+            dismissButton = { TextButton(onClick = { open = false; onPick(UserRole.BUSINESS) }) { Text("As a shop owner") } },
+        )
+    }
+}
+
+@Composable
+fun FirebaseNotConfiguredScreen(onDemo: (UserRole) -> Unit = {}) {
     Column(
         Modifier.fillMaxSize().background(QNowTheme.extended.heroGradient).statusBarsPadding().padding(Space.xl),
         verticalArrangement = Arrangement.Center,
@@ -354,6 +386,8 @@ fun FirebaseNotConfiguredScreen() {
             color = Color.White.copy(alpha = 0.85f),
             textAlign = TextAlign.Center,
         )
+        Spacer(Modifier.height(Space.lg))
+        DemoEntry(onDemo, light = true)
     }
 }
 

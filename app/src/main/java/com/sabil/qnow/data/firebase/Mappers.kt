@@ -31,6 +31,7 @@ fun DocumentSnapshot.toBusiness(): Business? {
             name = m.str("name").orEmpty(),
             price = m.num("price")?.toDouble() ?: 0.0,
             durationMinutes = m.num("durationMinutes")?.toInt() ?: 20,
+            audience = enumOr(m.str("for"), com.sabil.qnow.domain.model.Audience.ALL),
         )
     }
     @Suppress("UNCHECKED_CAST")
@@ -63,6 +64,7 @@ fun DocumentSnapshot.toBusiness(): Business? {
         ratingCount = long("ratingCount"),
         utcOffsetMinutes = int("utcOffsetMinutes"),
         graceMinutes = int("graceMinutes", 3),
+        currencyCode = str("currency")?.takeIf { it.length == 3 } ?: "INR",
         queue = QueueCounter(
             dayKey = queue?.num("dayKey")?.toLong() ?: 0,
             lastNumber = queue?.num("lastNumber")?.toInt() ?: 0,
@@ -71,7 +73,7 @@ fun DocumentSnapshot.toBusiness(): Business? {
 }
 
 fun Service.toMap() = mapOf(
-    "id" to id, "name" to name, "price" to price, "durationMinutes" to durationMinutes,
+    "id" to id, "name" to name, "price" to price, "durationMinutes" to durationMinutes, "for" to audience.name,
 )
 
 fun DayHours.toMap() = mapOf(

@@ -29,11 +29,29 @@ interface AuthRepository {
     suspend fun verifyPhoneCode(verificationId: String, code: String)
     suspend fun signInWithGoogle(activity: Activity)
     suspend fun signOut()
+    /** What the signed-in account looks like, for the profile header. */
+    fun account(): AccountInfo?
 }
+
+data class AccountInfo(
+    val name: String?,
+    val email: String?,
+    val phone: String?,
+    val photoUrl: String?,
+    val signedInWith: String,
+)
+
+/** Deleting an account needs a fresh sign-in; the UI asks the user to sign in again. */
+class RecentLoginRequiredException : IllegalStateException("Please sign in again, then delete your account.")
 
 interface UserRepository {
     fun observeUser(uid: String): Flow<AppUser?>
     suspend fun chooseRole(role: UserRole, displayName: String?)
+    suspend fun updateDisplayName(name: String)
+    fun observeProfile(): Flow<com.sabil.qnow.domain.model.CustomerProfile>
+    suspend fun saveProfile(gender: com.sabil.qnow.domain.model.Gender?, family: List<com.sabil.qnow.domain.model.FamilyMember>)
+    /** Removes the customer's private data (profile, favourites, token history) and the login itself. */
+    suspend fun deleteCustomerAccount()
 }
 
 data class BusinessDraft(
@@ -50,6 +68,7 @@ data class BusinessDraft(
     val hours: List<com.sabil.qnow.domain.model.DayHours>,
     val chairs: Int,
     val graceMinutes: Int,
+    val currencyCode: String,
 )
 
 sealed interface PhotoDraft {
@@ -78,7 +97,8 @@ interface QueueRepository {
     fun observeMyTokens(): Flow<List<MyTokenRef>>
 
     /** Issues the next number in a transaction, so two people can never get the same token. */
-    suspend fun bookToken(business: Business, service: Service?): MyTokenRef
+    /** [forName] is who the token is for (e.g. a child); only the shop sees it. */
+    suspend fun bookToken(business: Business, service: Service?, forName: String? = null): MyTokenRef
     suspend fun cancelToken(businessId: String, tokenId: String)
 
     // Business side
@@ -103,6 +123,14 @@ interface ReviewRepository {
     suspend fun submitReview(businessId: String, tokenId: String, rating: Int, comment: String)
 }
 
+data class SupportTicket(val id: String, val category: String, val message: String, val status: String, val createdAtMillis: Long, val reply: String?)
+
+/** Customer helpline: requests go to the QNow team (readable in the Firebase console). */
+interface SupportRepository {
+    suspend fun submit(category: String, message: String)
+    fun observeMine(): Flow<List<SupportTicket>>
+}
+
 interface PromoRepository {
     fun observePromos(): Flow<List<Promo>>
 }
@@ -111,4 +139,6 @@ interface LocationRepository {
     suspend fun lastKnownLocation(): GeoLocation?
     suspend fun geocode(query: String): GeoLocation?
     suspend fun reverseGeocode(location: GeoLocation): String?
+    /** Two-letter country code (e.g. IN) at a point on the map. */
+    suspend fun countryCode(location: GeoLocation): String?
 }

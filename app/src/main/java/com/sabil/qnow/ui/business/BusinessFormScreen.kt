@@ -79,6 +79,7 @@ import com.sabil.qnow.ui.components.MapCamera
 import com.sabil.qnow.ui.components.MapPin
 import com.sabil.qnow.ui.components.OsmMap
 import com.sabil.qnow.ui.components.Pill
+import com.sabil.qnow.ui.components.Money
 import com.sabil.qnow.ui.theme.QNowTheme
 import com.sabil.qnow.ui.components.PrimaryButton
 import com.sabil.qnow.ui.components.QCard
@@ -266,7 +267,7 @@ private fun LocationStep(s: BusinessFormState, vm: BusinessFormViewModel) {
 
 @Composable
 private fun ServicesStep(s: BusinessFormState, vm: BusinessFormViewModel) {
-    Hint("Average time per service is used to estimate customer waits, so be realistic.")
+    Hint("Prices are in ${Money.symbol(s.currencyCode)} (${s.currencyCode}), the currency of your shop's country. Average time per service is used to estimate waits.")
     s.services.forEach { d ->
         QCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
@@ -275,7 +276,7 @@ private fun ServicesStep(s: BusinessFormState, vm: BusinessFormViewModel) {
                     IconButton(onClick = { vm.removeService(d.id) }, enabled = s.services.size > 1) { Icon(Icons.Rounded.Delete, "Remove service") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                    Field(d.price, { vm.updateService(d.copy(price = it.filter { c -> c.isDigit() || c == '.' }.take(8))) }, "Price", KeyboardType.Decimal, modifier = Modifier.weight(1f))
+                    Field(d.price, { vm.updateService(d.copy(price = it.filter { c -> c.isDigit() || c == '.' }.take(8))) }, "Price (${Money.symbol(s.currencyCode)})", KeyboardType.Decimal, modifier = Modifier.weight(1f))
                     Field(d.minutes, { vm.updateService(d.copy(minutes = it.filter(Char::isDigit).take(3))) }, "Minutes", KeyboardType.Number, modifier = Modifier.weight(1f))
                 }
             }

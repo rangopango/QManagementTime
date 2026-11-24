@@ -329,11 +329,27 @@ fun formatMinutes(minutes: Int): String = when {
     else -> "${minutes / 60} h ${minutes % 60} min"
 }
 
-/** Price in the phone's local currency, without decimals when it's a whole amount. */
-fun formatPrice(price: Double): String =
-    java.text.NumberFormat.getCurrencyInstance().apply {
+/** Price in the shop's own currency (e.g. ₹150), whole amounts without decimals. */
+fun formatPrice(price: Double, currencyCode: String = "INR"): String =
+    java.text.NumberFormat.getCurrencyInstance(Money.displayLocale(currencyCode)).apply {
+        currency = Money.currency(currencyCode)
         if (price % 1.0 == 0.0) maximumFractionDigits = 0
     }.format(price)
+
+object Money {
+    /** The currency used in a country (two-letter code), falling back to rupees. */
+    fun currencyForCountry(countryCode: String?): String =
+        countryCode?.let { runCatching { java.util.Currency.getInstance(java.util.Locale("", it)).currencyCode }.getOrNull() } ?: "INR"
+
+    fun currency(code: String): java.util.Currency =
+        runCatching { java.util.Currency.getInstance(code) }.getOrElse { java.util.Currency.getInstance("INR") }
+
+    fun symbol(code: String): String = currency(code).getSymbol(displayLocale(code))
+
+    /** Rupees read best with Indian grouping (1,00,000); other currencies use the phone's locale. */
+    fun displayLocale(code: String): java.util.Locale =
+        if (code == "INR") java.util.Locale("en", "IN") else java.util.Locale.getDefault()
+}
 
 fun formatTime(minutesOfDay: Int): String {
     val h = minutesOfDay / 60

@@ -59,6 +59,21 @@ class AndroidLocationRepository @Inject constructor(
         }.getOrNull()
     }
 
+    override suspend fun countryCode(location: GeoLocation): String? = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        val geocoder = Geocoder(context, Locale.getDefault())
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 33) {
+                suspendCancellableCoroutine { cont ->
+                    geocoder.getFromLocation(location.lat, location.lng, 1) { cont.resume(it.firstOrNull()?.countryCode) }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocation(location.lat, location.lng, 1)?.firstOrNull()?.countryCode
+            }
+        }.getOrNull()
+    }
+
     override suspend fun reverseGeocode(location: GeoLocation): String? = withContext(Dispatchers.IO) {
         if (!Geocoder.isPresent()) return@withContext null
         val geocoder = Geocoder(context, Locale.getDefault())

@@ -25,4 +25,4 @@ google-services.json
 .firebase/
 functions/node_modules/
 functions/lib/
-
+tools/bots/node_modules/

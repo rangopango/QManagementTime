@@ -24,6 +24,7 @@ import com.sabil.qnow.domain.repository.LocationRepository
 import com.sabil.qnow.domain.repository.PromoRepository
 import com.sabil.qnow.domain.repository.QueueRepository
 import com.sabil.qnow.domain.repository.ReviewRepository
+import com.sabil.qnow.domain.repository.UserRepository
 import com.sabil.qnow.data.messaging.TokenTracker
 import com.sabil.qnow.domain.model.TokenStatus
 import com.sabil.qnow.ui.navigation.BusinessRoute
@@ -54,6 +55,22 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** Straight-line distance between two points, in km. */
+internal fun distanceKm(a: GeoLocation, b: GeoLocation): Double {
+    val r = 6371.0
+    val dLat = Math.toRadians(b.lat - a.lat)
+    val dLng = Math.toRadians(b.lng - a.lng)
+    val h = Math.sin(dLat / 2).let { it * it } +
+        Math.cos(Math.toRadians(a.lat)) * Math.cos(Math.toRadians(b.lat)) * Math.sin(dLng / 2).let { it * it }
+    return 2 * r * Math.asin(Math.sqrt(h))
+}
+
+/** Short, non-personal error code for support, e.g. "PERMISSION_DENIED". */
+internal fun errorCode(e: Throwable): String {
+    val root = generateSequence(e) { it.cause }.firstOrNull { it is com.google.firebase.firestore.FirebaseFirestoreException } ?: e
+    return (root as? com.google.firebase.firestore.FirebaseFirestoreException)?.code?.name ?: root.javaClass.simpleName
+}
+
 private fun <T> Flow<T>.state(vm: ViewModel, initial: T): StateFlow<T> =
     stateIn(vm.viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
 
@@ -68,7 +85,13 @@ data class HomeUiState(
     val promos: List<Promo> = emptyList(),
     val favourites: List<LiveBusiness> = emptyList(),
     val activeToken: ActiveToken? = null,
+    /** Shops near the customer, closest first (favourites are listed separately above). */
+    val nearby: List<NearbyShop> = emptyList(),
+    /** False until location permission is granted, so the UI can ask for it. */
+    val hasLocation: Boolean = true,
 )
+
+data class NearbyShop(val live: LiveBusiness, val distanceKm: Double)
 
 data class ActiveToken(val ref: MyTokenRef, val token: QueueToken)
 
@@ -81,7 +104,24 @@ class HomeViewModel @Inject constructor(
     queue: QueueRepository,
     observeLive: ObserveLiveBusiness,
     private val tracker: TokenTracker,
+    auth: com.sabil.qnow.domain.repository.AuthRepository,
+    private val location: LocationRepository,
 ) : ViewModel() {
+
+    private val here = MutableStateFlow<GeoLocation?>(null)
+    private val located = MutableStateFlow(true)
+
+    /** Called once location permission is known; loads shops around the customer. */
+    fun onLocationPermission(granted: Boolean) {
+        viewModelScope.launch {
+            val loc = if (granted) location.lastKnownLocation() else null
+            located.value = loc != null
+            if (loc != null) here.value = loc
+        }
+    }
+
+    val account = auth.account()
+    val isDemo = account?.signedInWith == "Demo mode"
 
     private val favouriteBusinesses: Flow<List<LiveBusiness>> = favourites.observeFavouriteIds()
         .flatMapLatest { ids ->
@@ -99,11 +139,39 @@ class HomeViewModel @Inject constructor(
         .onEach { a -> a?.let { tracker.track(it.ref.businessId, it.ref.tokenId) } }
         .catch { emit(null) }
 
+    /** The 10 closest shops, each with its live queue. */
+    private val nearby: Flow<List<NearbyShop>> = here.filterNotNull()
+        .flatMapLatest { center ->
+            businesses.observeNearby(center, radiusKm = 10.0)
+                .map { list ->
+                    list.mapNotNull { b -> b.location?.let { b to distanceKm(center, it) } }
+                        .sortedBy { it.second }
+                        .take(10)
+                }
+                .distinctUntilChangedBy { pairs -> pairs.map { it.first.id } }
+                .flatMapLatest { pairs ->
+                    combineAll(pairs.map { (b, d) -> observeLive.live(b).map { live -> live?.let { NearbyShop(it, d) } }.catch { emit(null) } })
+                }
+                .map { it.filterNotNull().sortedBy { s -> s.distanceKm } }
+        }
+        .onStart { emit(emptyList()) }
+        .catch { emit(emptyList()) }
+
+    private val places = combine(nearby, located) { n, l -> n to l }
+
     val state: StateFlow<HomeUiState> = combine(
         promos.observePromos(),
         favouriteBusinesses.catch { emit(emptyList()) },
         activeToken,
-    ) { p, f, a -> HomeUiState(loading = false, promos = p, favourites = f, activeToken = a) }
+        places,
+    ) { p, f, a, (n, l) ->
+        val favIds = f.map { it.business.id }.toSet()
+        HomeUiState(
+            loading = false, promos = p, favourites = f, activeToken = a,
+            nearby = n.filterNot { it.live.business.id in favIds },
+            hasLocation = l,
+        )
+    }
         .state(this, HomeUiState())
 }
 
@@ -120,6 +188,9 @@ data class MapUiState(
     val category: BusinessCategory? = null,
     /** Bumped whenever the camera should move, even back to the same spot. */
     val cameraKey: Int = 0,
+    /** Real shops from public map data that aren't on QNow yet (not bookable). */
+    val outside: List<com.sabil.qnow.data.places.OutsideShop> = emptyList(),
+    val selectedOutside: com.sabil.qnow.data.places.OutsideShop? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -128,9 +199,11 @@ class MapViewModel @Inject constructor(
     private val location: LocationRepository,
     businesses: BusinessRepository,
     observeLive: ObserveLiveBusiness,
+    places: com.sabil.qnow.data.places.OsmPlacesRepository,
 ) : ViewModel() {
 
     private val center = MutableStateFlow<GeoLocation?>(null)
+    private val outsideId = MutableStateFlow<String?>(null)
     private val selectedId = MutableStateFlow<String?>(null)
     private val ui = MutableStateFlow(MapUiState())
 
@@ -139,10 +212,19 @@ class MapViewModel @Inject constructor(
     }
     private val selected = selectedId.flatMapLatest { id -> if (id == null) flowOf(null) else observeLive(id).catch { emit(null) } }
 
-    val state: StateFlow<MapUiState> = combine(ui, nearby, selected) { u, list, sel ->
+    private val outside = center.filterNotNull().mapLatest { c -> places.nearby(c) }.onStart { emit(emptyList()) }
+
+    private val outsidePicked = combine(outside, outsideId) { list, id -> list to list.firstOrNull { it.id == id } }
+
+    val state: StateFlow<MapUiState> = combine(ui, nearby, selected, outsidePicked) { u, list, sel, (out, outSel) ->
+        val onQNow = list.mapNotNull { it.location }
         u.copy(
             businesses = list.filter { u.category == null || it.category == u.category },
             selected = sel,
+            // Hide public listings that sit right on top of a shop that already joined QNow.
+            outside = out.filter { o -> onQNow.none { distanceKm(it, o.location) < 0.03 } }
+                .filter { u.category == null || it.kind.startsWith(u.category.label.take(4), ignoreCase = true) },
+            selectedOutside = outSel,
         )
     }.state(this, MapUiState())
 
@@ -181,7 +263,8 @@ class MapViewModel @Inject constructor(
     }
 
     fun recenter() = onLocationPermission(true)
-    fun select(id: String?) { selectedId.value = id }
+    fun select(id: String?) { selectedId.value = id; outsideId.value = null }
+    fun selectOutside(id: String) { outsideId.value = id; selectedId.value = null }
     fun filter(category: BusinessCategory?) = ui.update { it.copy(category = category) }
     fun consumeMessage() = ui.update { it.copy(message = null) }
 
@@ -207,6 +290,11 @@ data class DetailUiState(
     /** Id of this customer's live token here, if they already hold one. */
     val myToken: String? = null,
     val photos: List<com.sabil.qnow.domain.model.Photo> = emptyList(),
+    /** Me + family; the token is booked for [person]. */
+    val people: List<com.sabil.qnow.domain.model.FamilyMember> = emptyList(),
+    val person: com.sabil.qnow.domain.model.FamilyMember? = null,
+    /** Services that suit [person] (all of them if none are marked). */
+    val services: List<Service> = emptyList(),
 )
 
 sealed interface DetailEvent {
@@ -223,8 +311,11 @@ class BusinessDetailViewModel @Inject constructor(
     reviews: ReviewRepository,
     private val queue: QueueRepository,
     private val businesses: BusinessRepository,
+    users: UserRepository,
 ) : ViewModel() {
     val businessId = savedState.toRoute<BusinessRoute>().businessId
+    private val personId = MutableStateFlow(com.sabil.qnow.domain.model.CustomerProfile.SELF_ID)
+    private val people = users.observeProfile().map { it.bookable() }.catch { emit(com.sabil.qnow.domain.model.CustomerProfile(null, null, emptyList()).bookable()) }
 
     private val selected = MutableStateFlow<Service?>(null)
     private val booking = MutableStateFlow(false)
@@ -247,28 +338,38 @@ class BusinessDetailViewModel @Inject constructor(
         .mapLatest { biz -> runCatching { businesses.photos(biz) }.getOrDefault(emptyList()) }
         .onStart { emit(emptyList()) }
 
-    private val extras = combine(selected, booking, myToken, photos) { s, b, m, p -> Extras(s, b, m, p) }
-    private data class Extras(val selected: Service?, val booking: Boolean, val myToken: String?, val photos: List<com.sabil.qnow.domain.model.Photo>)
+    private val who = combine(people, personId) { list, id -> list to (list.firstOrNull { it.id == id } ?: list.first()) }
+    private val extras = combine(selected, booking, myToken, photos, who) { s, b, m, p, w -> Extras(s, b, m, p, w.first, w.second) }
+    private data class Extras(
+        val selected: Service?, val booking: Boolean, val myToken: String?, val photos: List<com.sabil.qnow.domain.model.Photo>,
+        val people: List<com.sabil.qnow.domain.model.FamilyMember>, val person: com.sabil.qnow.domain.model.FamilyMember,
+    )
 
     val state: StateFlow<DetailUiState> = combine(
         live,
         favourites.observeFavouriteIds().map { businessId in it }.catch { emit(false) },
         reviews.observeReviews(businessId).catch { emit(emptyList()) },
         extras,
-    ) { live, fav, revs, (sel, book, mine, pics) ->
+    ) { live, fav, revs, x ->
+        val all = live?.business?.services.orEmpty()
+        val fitting = all.filter { x.person.fits(it) }.ifEmpty { all }
         DetailUiState(
-            myToken = mine,
-            photos = pics,
+            people = x.people,
+            person = x.person,
+            services = fitting,
+            myToken = x.myToken,
+            photos = x.photos,
             loading = false,
             live = live,
             favourite = fav,
             reviews = revs,
-            selectedService = sel ?: live?.business?.services?.firstOrNull(),
-            booking = book,
+            selectedService = x.selected?.takeIf { it in fitting } ?: fitting.firstOrNull(),
+            booking = x.booking,
         )
     }.state(this, DetailUiState())
 
     fun selectService(s: Service) { selected.value = s }
+    fun selectPerson(id: String) { personId.value = id }
 
     fun toggleFavourite() {
         val now = state.value.favourite
@@ -279,13 +380,15 @@ class BusinessDetailViewModel @Inject constructor(
         val biz = state.value.live?.business ?: return
         booking.value = true
         viewModelScope.launch {
-            runCatching { queue.bookToken(biz, state.value.selectedService) }
+            val p = state.value.person
+            val forName = p?.takeIf { it.id != com.sabil.qnow.domain.model.CustomerProfile.SELF_ID }?.let { if (it.isChild) "${it.name} (child)" else it.name }
+            runCatching { queue.bookToken(biz, state.value.selectedService, forName) }
                 .onSuccess { _events.send(DetailEvent.Booked(TokenRoute(it.businessId, it.tokenId))) }
                 .onFailure { e ->
                     _events.send(DetailEvent.Error(when (e) {
                         is AlreadyInQueueException -> "You already have a live token here."
                         is BusinessNotOpenException -> "${biz.name} isn't taking tokens right now."
-                        else -> "Couldn't book right now. Check your connection and try again."
+                        else -> "Couldn't book right now. Check your connection and try again. (Error: ${errorCode(e)})"
                     }))
                 }
             booking.value = false

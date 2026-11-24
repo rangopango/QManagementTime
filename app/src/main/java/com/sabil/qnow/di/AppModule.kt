@@ -25,7 +25,9 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Provider
 import javax.inject.Singleton
+import com.sabil.qnow.data.demo.*
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -44,12 +46,45 @@ object FirebaseModule {
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
-    @Binds abstract fun auth(impl: FirebaseAuthRepository): AuthRepository
-    @Binds abstract fun users(impl: FirestoreUserRepository): UserRepository
-    @Binds abstract fun businesses(impl: FirestoreBusinessRepository): BusinessRepository
-    @Binds abstract fun queue(impl: FirestoreQueueRepository): QueueRepository
-    @Binds abstract fun favourites(impl: FirestoreFavouritesRepository): FavouritesRepository
-    @Binds abstract fun reviews(impl: FirestoreReviewRepository): ReviewRepository
-    @Binds abstract fun promos(impl: FirestorePromoRepository): PromoRepository
     @Binds abstract fun location(impl: AndroidLocationRepository): LocationRepository
+}
+
+/**
+ * Picks real (Firebase) or prototype (bot world) data once, at start-up. Providers keep the
+ * unused side from ever being created, so demo mode never touches Firebase.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+object DataSourceModule {
+    @Provides @Singleton
+    fun auth(mode: DemoMode, live: Provider<FirebaseAuthRepository>, demo: Provider<DemoAuthRepository>): AuthRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun users(mode: DemoMode, live: Provider<FirestoreUserRepository>, demo: Provider<DemoUserRepository>): UserRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun businesses(mode: DemoMode, live: Provider<FirestoreBusinessRepository>, demo: Provider<DemoBusinessRepository>): BusinessRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun queue(mode: DemoMode, live: Provider<FirestoreQueueRepository>, demo: Provider<DemoQueueRepository>): QueueRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun favourites(mode: DemoMode, live: Provider<FirestoreFavouritesRepository>, demo: Provider<DemoFavouritesRepository>): FavouritesRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun reviews(mode: DemoMode, live: Provider<FirestoreReviewRepository>, demo: Provider<DemoReviewRepository>): ReviewRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun support(mode: DemoMode, live: Provider<com.sabil.qnow.data.user.FirestoreSupportRepository>, demo: Provider<DemoSupportRepository>): com.sabil.qnow.domain.repository.SupportRepository =
+        if (mode.enabled) demo.get() else live.get()
+
+    @Provides @Singleton
+    fun promos(mode: DemoMode, live: Provider<FirestorePromoRepository>, demo: Provider<DemoPromoRepository>): PromoRepository =
+        if (mode.enabled) demo.get() else live.get()
 }

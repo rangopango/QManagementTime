@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ConfirmationNumber
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +40,13 @@ import com.sabil.qnow.ui.navigation.MyTokensRoute
 import com.sabil.qnow.ui.navigation.ReviewRoute
 import com.sabil.qnow.ui.navigation.TokenRoute
 import com.sabil.qnow.ui.navigation.TryOnRoute
+import com.sabil.qnow.ui.navigation.ProfileRoute
+import com.sabil.qnow.ui.navigation.FavouritesRoute
+import com.sabil.qnow.ui.navigation.HelpRoute
+import com.sabil.qnow.ui.navigation.AiStyleRoute
+import com.sabil.qnow.ui.navigation.LiveMirrorRoute
+import com.sabil.qnow.ui.navigation.FamilyRoute
+import com.sabil.qnow.ui.navigation.SupportRoute
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.reflect.KClass
 
@@ -47,6 +55,7 @@ private data class Tab(val route: Any, val type: KClass<*>, val label: String, v
 private val tabs = listOf(
     Tab(HomeRoute, HomeRoute::class, "Home", Icons.Rounded.Home),
     Tab(MapRoute, MapRoute::class, "Explore", Icons.Rounded.Map),
+    Tab(AiStyleRoute, AiStyleRoute::class, "Looks", Icons.Rounded.AutoAwesome),
     Tab(MyTokensRoute, MyTokensRoute::class, "My tokens", Icons.Rounded.ConfirmationNumber),
 )
 
@@ -101,8 +110,8 @@ fun CustomerApp(pendingToken: MutableStateFlow<TokenRoute?>, onSignOut: () -> Un
                         onFind = { nav.navigate(MapRoute) { launchSingleTop = true } },
                         onBusiness = { nav.navigate(BusinessRoute(it)) },
                         onToken = { b, t -> nav.navigate(TokenRoute(b, t)) },
-                        onTryOn = { nav.navigate(TryOnRoute) },
-                        onSignOut = onSignOut,
+                        onTryOn = { nav.navigate(AiStyleRoute) { launchSingleTop = true } },
+                        onProfile = { nav.navigate(ProfileRoute) },
                     )
                 }
                 composable<MapRoute> { MapScreen(onBusiness = { nav.navigate(BusinessRoute(it)) }) }
@@ -127,6 +136,29 @@ fun CustomerApp(pendingToken: MutableStateFlow<TokenRoute?>, onSignOut: () -> Un
                 }
                 composable<ReviewRoute> { ReviewScreen(onDone = nav::popBackStack) }
                 composable<TryOnRoute> { TryOnScreen(onBack = nav::popBackStack) }
+                composable<ProfileRoute> {
+                    ProfileScreen(
+                        onBack = nav::popBackStack,
+                        onMyTokens = { nav.navigate(MyTokensRoute) { launchSingleTop = true } },
+                        onFavourites = { nav.navigate(FavouritesRoute) },
+                        onHelp = { nav.navigate(HelpRoute) },
+                        onTryOn = { nav.navigate(AiStyleRoute) { launchSingleTop = true } },
+                        onFamily = { nav.navigate(FamilyRoute) },
+                        onSupport = { nav.navigate(SupportRoute) },
+                    )
+                }
+                composable<FavouritesRoute> {
+                    FavouritesScreen(
+                        onBack = nav::popBackStack,
+                        onBusiness = { nav.navigate(BusinessRoute(it)) },
+                        onFind = { nav.navigate(MapRoute) { launchSingleTop = true } },
+                    )
+                }
+                composable<HelpRoute> { HelpScreen(onBack = nav::popBackStack, onSupport = { nav.navigate(SupportRoute) }) }
+                composable<FamilyRoute> { FamilyScreen(onBack = nav::popBackStack) }
+                composable<SupportRoute> { SupportScreen(onBack = nav::popBackStack) }
+                composable<AiStyleRoute> { AiStyleScreen(onFindBarber = { nav.navigate(MapRoute) { launchSingleTop = true } }, onLiveMirror = { nav.navigate(LiveMirrorRoute) }) }
+                composable<LiveMirrorRoute> { LiveMirrorScreen(onClose = nav::popBackStack) }
             }
         }
     }

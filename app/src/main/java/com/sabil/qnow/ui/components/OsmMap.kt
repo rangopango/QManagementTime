@@ -53,6 +53,8 @@ data class MapPin(
     val letter: String,
     val ring: Color,
     val selected: Boolean = false,
+    /** Pin body colour; null = brand colour. Grey is used for shops not on QNow yet. */
+    val fill: Color? = null,
 )
 
 /** Where the map should look. A new [key] moves the camera even to the same place. */
@@ -64,6 +66,25 @@ data class MapCamera(val center: GeoLocation, val zoom: Double, val key: Int = 0
  */
 @Composable
 fun OsmMap(
+    camera: MapCamera?,
+    pins: List<MapPin>,
+    modifier: Modifier = Modifier,
+    showMyLocation: Boolean = false,
+    dark: Boolean = false,
+    onPinClick: (String) -> Unit = {},
+    onMapTap: (GeoLocation) -> Unit = {},
+    onCameraSettled: (GeoLocation, Double) -> Unit = { _, _ -> },
+) {
+    // Google Maps when a key is configured (better street names), otherwise free OpenStreetMap.
+    if (com.sabil.qnow.BuildConfig.GOOGLE_MAPS) {
+        GoogleQMap(camera, pins, modifier, showMyLocation, dark, onPinClick, onMapTap, onCameraSettled)
+    } else {
+        OpenStreetQMap(camera, pins, modifier, showMyLocation, dark, onPinClick, onMapTap, onCameraSettled)
+    }
+}
+
+@Composable
+private fun OpenStreetQMap(
     camera: MapCamera?,
     pins: List<MapPin>,
     modifier: Modifier = Modifier,
@@ -106,6 +127,9 @@ fun OsmMap(
         }
     }
 
+    // Set once the map is torn down; effects that finish later must not touch it (osmdroid crashes).
+    val alive = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
+
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -117,21 +141,25 @@ fun OsmMap(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            alive.set(false)
             map.onDetach()
         }
     }
 
     LaunchedEffect(camera) {
         camera ?: return@LaunchedEffect
+        if (!alive.get()) return@LaunchedEffect
         map.controller.animateTo(GeoPoint(camera.center.lat, camera.center.lng), camera.zoom, 700L)
     }
 
     LaunchedEffect(dark) {
+        if (!alive.get()) return@LaunchedEffect
         map.overlayManager.tilesOverlay.setColorFilter(if (dark) TilesOverlay.INVERT_COLORS else null)
         map.invalidate()
     }
 
     LaunchedEffect(showMyLocation) {
+        if (!alive.get()) return@LaunchedEffect
         map.overlays.removeAll { it is MyLocationNewOverlay }
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
@@ -142,11 +170,12 @@ fun OsmMap(
     }
 
     LaunchedEffect(pins) {
+        if (!alive.get() || map.repository == null) return@LaunchedEffect
         map.overlays.removeAll { it is Marker }
         pins.forEach { pin ->
             map.overlays.add(Marker(map).apply {
                 position = GeoPoint(pin.location.lat, pin.location.lng)
-                icon = pinIcon(context, pin, gradientStart)
+                icon = pinIcon(context, pin, pin.fill?.toArgb() ?: gradientStart)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 setInfoWindow(null)
                 setOnMarkerClickListener { _, _ -> pinClick(pin.id); true }
@@ -167,7 +196,7 @@ fun OsmMap(
     }
 }
 
-private fun pinIcon(context: Context, pin: MapPin, fill: Int): BitmapDrawable {
+internal fun pinIcon(context: Context, pin: MapPin, fill: Int): BitmapDrawable {
     val density = context.resources.displayMetrics.density
     val sizeDp = if (pin.selected) 52 else 40
     val px = (sizeDp * density).toInt()

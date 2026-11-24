@@ -14,6 +14,7 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.sabil.qnow.data.local.SecureStore
+import com.sabil.qnow.domain.repository.AccountInfo
 import com.sabil.qnow.domain.repository.AuthRepository
 import com.sabil.qnow.domain.repository.PhoneAuthStep
 import kotlinx.coroutines.channels.awaitClose
@@ -90,6 +91,22 @@ class FirebaseAuthRepository @Inject constructor(
         ) error("Unexpected sign-in response")
         val idToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
         auth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await()
+    }
+
+    override fun account(): AccountInfo? {
+        val user = auth.currentUser ?: return null
+        val providers = user.providerData.map { it.providerId }
+        return AccountInfo(
+            name = user.displayName?.takeIf { it.isNotBlank() },
+            email = user.email?.takeIf { it.isNotBlank() },
+            phone = user.phoneNumber?.takeIf { it.isNotBlank() },
+            photoUrl = user.photoUrl?.toString(),
+            signedInWith = when {
+                "google.com" in providers -> "Google"
+                "phone" in providers -> "Phone number"
+                else -> "QNow account"
+            },
+        )
     }
 
     override suspend fun signOut() {

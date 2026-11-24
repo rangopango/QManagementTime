@@ -16,6 +16,8 @@ class QNowApp : Application() {
         super.onCreate()
         CrashReport.install(this)
         notifier.createChannel()
+        // App Check protects the AI (Gemini) calls; only when Firebase is configured.
+        if (isFirebaseConfigured) runCatching { com.sabil.qnow.core.AppCheckSetup.install() }
         // OpenStreetMap tiles: identify the app (required by the tile usage policy) and cache inside app storage.
         org.osmdroid.config.Configuration.getInstance().apply {
             userAgentValue = BuildConfig.APPLICATION_ID

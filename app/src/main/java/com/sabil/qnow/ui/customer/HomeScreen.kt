@@ -32,6 +32,8 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Schedule
@@ -85,17 +87,24 @@ fun HomeScreen(
     onBusiness: (String) -> Unit,
     onToken: (String, String) -> Unit,
     onTryOn: () -> Unit,
-    onSignOut: () -> Unit,
+    onProfile: () -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val permission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result -> vm.onLocationPermission(result.values.any { it }) }
+    LaunchedEffect(Unit) {
+        permission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
 
     LazyColumn(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentPadding = PaddingValues(bottom = Space.xxl),
         verticalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
-        item { HomeTopBar(onSignOut) }
+        item { HomeTopBar(vm.account, onProfile) }
+        if (vm.isDemo) item { DemoBanner(onProfile) }
 
         item {
             AnimatedVisibility(state.activeToken != null, enter = expandVertically() + fadeIn()) {
@@ -111,52 +120,86 @@ fun HomeScreen(
 
         item { TryOnTeaser(onTryOn) }
 
+        // Favourites first (only when there are some), then every shop close by.
+        if (state.favourites.isNotEmpty()) {
+            item { SectionHeader("Your favourites", modifier = Modifier.padding(horizontal = Space.screen)) }
+            items(state.favourites, key = { "fav-" + it.business.id }) { live ->
+                FavouriteRow(live, Modifier.padding(horizontal = Space.screen).animateItem()) { onBusiness(live.business.id) }
+            }
+        }
+
         item {
             SectionHeader(
-                "Favourites",
+                "Barbers & salons near you",
                 modifier = Modifier.padding(horizontal = Space.screen),
-                action = if (state.favourites.isNotEmpty()) "Find more" else null,
+                action = "See map",
                 onAction = onFind,
             )
         }
         when {
-            state.loading -> item { ShimmerList(2, modifier = Modifier.padding(horizontal = Space.screen)) }
-            state.favourites.isEmpty() -> item {
+            !state.hasLocation -> item {
                 EmptyState(
-                    icon = Icons.Rounded.FavoriteBorder,
-                    title = "No favourites yet",
-                    message = "Tap the heart on any shop and it'll stay pinned here with its live queue.",
-                    actionLabel = "Explore nearby",
+                    icon = Icons.Rounded.LocationOn,
+                    title = "Turn on location",
+                    message = "Allow location so QNow can list the barbers, salons and parlours closest to you.",
+                    actionLabel = "Allow location",
+                    onAction = { permission.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION)) },
+                )
+            }
+            state.loading -> item { ShimmerList(3, modifier = Modifier.padding(horizontal = Space.screen)) }
+            state.nearby.isEmpty() -> item {
+                EmptyState(
+                    icon = Icons.Rounded.Storefront,
+                    title = "No QNow shops nearby yet",
+                    message = "Shops within 10 km will appear here as they join. Try the map to look further away.",
+                    actionLabel = "Open map",
                     onAction = onFind,
                 )
             }
-            else -> items(state.favourites, key = { it.business.id }) { live ->
-                FavouriteRow(live, Modifier.padding(horizontal = Space.screen).animateItem()) { onBusiness(live.business.id) }
+            else -> items(state.nearby, key = { "near-" + it.live.business.id }) { shop ->
+                FavouriteRow(shop.live, Modifier.padding(horizontal = Space.screen).animateItem(), distanceKm = shop.distanceKm) {
+                    onBusiness(shop.live.business.id)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun HomeTopBar(onSignOut: () -> Unit) {
-    var menu by remember { mutableStateOf(false) }
+private fun HomeTopBar(account: com.sabil.qnow.domain.repository.AccountInfo?, onProfile: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(start = Space.screen, end = Space.sm, top = Space.md),
+        Modifier.fillMaxWidth().statusBarsPadding().padding(start = Space.screen, end = Space.screen, top = Space.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(greeting(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(greeting() + (account?.name?.substringBefore(' ')?.let { ", $it" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Skip the wait.", style = MaterialTheme.typography.headlineMedium)
         }
-        Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Menu") }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(
-                    text = { Text("Sign out") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },
-                    onClick = { menu = false; onSignOut() },
-                )
+        // Profile button, top right (like big shopping apps): photo or initial on the brand gradient.
+        Surface(onClick = onProfile, shape = CircleShape, color = Color.Transparent) {
+            Box(Modifier.clip(CircleShape).background(QNowTheme.extended.heroGradient)) {
+                Avatar(account, 46)
             }
+        }
+    }
+}
+
+@Composable
+private fun DemoBanner(onProfile: () -> Unit) {
+    Surface(
+        onClick = onProfile,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.padding(horizontal = Space.screen).fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(Space.md), verticalAlignment = Alignment.CenterVertically) {
+            Pill("DEMO", MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.width(Space.sm))
+            Text(
+                "Bot shops and bot customers. Exit from your profile.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
         }
     }
 }
@@ -304,16 +347,16 @@ private fun TryOnTeaser(onClick: () -> Unit) {
             Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
             Spacer(Modifier.width(Space.md))
             Column(Modifier.weight(1f)) {
-                Text("AI Style Try-On", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Text("Preview a new look before you sit down", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
+                Text("Look Studio", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Try colours, cuts and beards on your photo", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
             }
-            Pill("Coming soon", MaterialTheme.colorScheme.primary)
+            Pill("Try it", MaterialTheme.colorScheme.primary)
         }
     }
 }
 
 @Composable
-fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, distanceKm: Double? = null, onClick: () -> Unit) {
     val biz = live.business
     QCard(modifier.fillMaxWidth(), onClick = onClick) {
         Row(Modifier.padding(Space.md), verticalAlignment = Alignment.CenterVertically) {
@@ -321,7 +364,11 @@ fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, onClick: () 
             Spacer(Modifier.width(Space.md))
             Column(Modifier.weight(1f)) {
                 Text(biz.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
+                val where = listOfNotNull(distanceKm?.let(::formatDistance), biz.address.takeIf { it.isNotBlank() }).joinToString(" · ")
+                if (where.isNotEmpty()) {
+                    Text(where, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusPill(biz.status)
                     if (biz.ratingCount > 0) {
@@ -349,6 +396,11 @@ fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, onClick: () 
     }
 }
 
+private fun formatDistance(km: Double): String = if (km < 1) "${(km * 1000).toInt() / 10 * 10} m" else "%.1f km".format(km)
+
+/** First letter of a name, skipping tags like "[Bot] ". */
+fun initialOf(name: String): String = (name.removePrefix("[Bot]").firstOrNull { it.isLetterOrDigit() } ?: 'Q').uppercase()
+
 /** Shop thumbnail, or a gradient monogram when there isn't one. */
 @Composable
 fun BusinessThumb(thumbnail: ByteArray?, name: String, modifier: Modifier = Modifier) {
@@ -356,7 +408,7 @@ fun BusinessThumb(thumbnail: ByteArray?, name: String, modifier: Modifier = Modi
         if (thumbnail != null) {
             AsyncImage(thumbnail, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().aspectRatio(1f))
         } else {
-            Text(name.take(1).uppercase(), style = MaterialTheme.typography.headlineSmall, color = Color.White)
+            Text(initialOf(name), style = MaterialTheme.typography.headlineSmall, color = Color.White)
         }
     }
 }

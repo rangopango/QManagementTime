@@ -25,10 +25,17 @@ import com.sabil.qnow.ui.root.RootState
 import com.sabil.qnow.ui.root.RootViewModel
 import com.sabil.qnow.ui.theme.QNowTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import androidx.compose.foundation.isSystemInDarkTheme
+import com.sabil.qnow.data.local.AppSettings
+import com.sabil.qnow.data.local.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var settings: AppSettings
+    @Inject lateinit var demoMode: com.sabil.qnow.data.demo.DemoMode
 
     /** A token opened from a notification, consumed by the customer navigation. */
     private val pendingToken = MutableStateFlow<TokenRoute?>(null)
@@ -43,11 +50,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         readDeepLink(intent)
 
-        val configured = (application as QNowApp).isFirebaseConfigured
+        // Demo mode runs entirely offline, so it works even before Firebase is set up.
+        val configured = (application as QNowApp).isFirebaseConfigured || demoMode.enabled
         setContent {
-            QNowTheme {
+            val theme by settings.theme.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
+            val dark = when (theme) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            QNowTheme(darkTheme = dark) {
                 if (!configured) {
-                    FirebaseNotConfiguredScreen()
+                    FirebaseNotConfiguredScreen(onDemo = demoMode::enter)
                 } else {
                     val root: RootViewModel = hiltViewModel()
                     val state by root.state.collectAsStateWithLifecycle()

@@ -68,9 +68,11 @@ class FirestoreQueueRepository @Inject constructor(
      * is "{day}-{number}", so a duplicate number can't be written even by a modified client
      * (firestore.rules checks the counter and the id together).
      */
-    override suspend fun bookToken(business: Business, service: Service?): MyTokenRef {
+    override suspend fun bookToken(business: Business, service: Service?, forName: String?): MyTokenRef {
         val uid = uid()
-        val label = auth.currentUser?.displayName?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "App customer"
+        val label = (forName?.trim()?.takeIf { it.isNotBlank() }
+            ?: auth.currentUser?.displayName?.substringBefore(' ')?.takeIf { it.isNotBlank() }
+            ?: "App customer").take(40)
         val bizRef = db.business(business.id)
         val lockRef = me().collection(Paths.ACTIVE_TOKENS).document(business.id)
 
