@@ -1,4 +1,4 @@
-import java.util.Properties
+﻿import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -31,8 +31,10 @@ android {
         applicationId = "com.sabil.qnow"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "2.0.0"
+        // Real phones and tablets are ARM; x86 copies (emulators only) doubled the APK size.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPS_API_KEY"] = mapsKey

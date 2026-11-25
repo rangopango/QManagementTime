@@ -10,6 +10,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.ConfirmationNumber
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteForever
@@ -62,7 +65,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -118,10 +121,18 @@ class ProfileViewModel @Inject constructor(
     private val users: UserRepository,
     private val settings: AppSettings,
     demo: com.sabil.qnow.data.demo.DemoMode,
+    promos: com.sabil.qnow.domain.repository.PromoRepository,
 ) : ViewModel() {
     val isDemo = demo.enabled
+    /** True for QNow team accounts (listed in the `admins` collection). */
+    val isAdmin = promos.observeIsAdmin().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val account = MutableStateFlow(auth.account())
     val theme = settings.theme.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.SYSTEM)
+    val language = settings.language.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.sabil.qnow.data.local.AppLanguage.EN)
+
+    fun setLanguage(lang: com.sabil.qnow.data.local.AppLanguage) {
+        viewModelScope.launch { settings.setLanguage(lang) }
+    }
     val busy = MutableStateFlow(false)
     private val _messages = Channel<String>(Channel.BUFFERED)
     val messages = _messages.receiveAsFlow()
@@ -171,11 +182,14 @@ fun ProfileScreen(
     onTryOn: () -> Unit,
     onFamily: () -> Unit = {},
     onSupport: () -> Unit = {},
+    onAds: () -> Unit = {},
     vm: ProfileViewModel = hiltViewModel(),
 ) {
     val account by vm.account.collectAsStateWithLifecycle()
     val theme by vm.theme.collectAsStateWithLifecycle()
+    val language by vm.language.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val isAdmin by vm.isAdmin.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var dialog by remember { mutableStateOf<ProfileDialog?>(null) }
@@ -210,7 +224,7 @@ fun ProfileScreen(
                     SettingRow(Icons.Rounded.DarkMode, "Appearance", theme.label) { dialog = ProfileDialog.Theme }
                     SettingRow(Icons.Rounded.Notifications, "Notifications", "Queue alerts and live token") { openNotificationSettings(context) }
                     SettingRow(Icons.Rounded.LocationOn, "Location permission", "Used to find shops near you") { openAppSettings(context) }
-                    SettingRow(Icons.Rounded.Language, "Language", "English", trailing = { Pill("Soon", MaterialTheme.colorScheme.primary) })
+                    SettingRow(Icons.Rounded.Language, "Language", language.nativeName) { dialog = ProfileDialog.Language }
                 }
             }
 
@@ -219,6 +233,15 @@ fun ProfileScreen(
                 SettingsGroup {
                     SettingRow(Icons.Rounded.AutoAwesome, "Look Studio", "Try colours, cuts and beards on your photo", trailing = { Pill("New", MaterialTheme.colorScheme.primary) }, onClick = onTryOn)
                     SettingRow(Icons.Rounded.Storefront, "List your business", "Use a separate business account") { dialog = ProfileDialog.Business }
+                }
+            }
+
+            if (isAdmin) {
+                item { SectionTitle("QNow team") }
+                item {
+                    SettingsGroup {
+                        SettingRow(Icons.Rounded.Campaign, "Ads manager", "Targeted ads, sponsored shops, views and taps", onClick = onAds)
+                    }
                 }
             }
 
@@ -263,6 +286,7 @@ fun ProfileScreen(
                 "• Only the shop you book with sees your first name.\n" +
                 "• Your phone number and email are never shown to shops or customers.\n" +
                 "• Reviews are anonymous.\n" +
+                "• Ads: the app picks which banners to show using the gender and area in your profile, on your phone. Advertisers never get your details, only totals of views and taps. Children's profiles never get targeted ads.\n" +
                 "• Data on this phone is encrypted.",
             onDismiss = { dialog = null },
         )
@@ -271,11 +295,35 @@ fun ProfileScreen(
             "QNow keeps customer and business accounts separate. Sign out, then sign in with a different Google account or phone number and choose \"I run a business\".",
             onDismiss = { dialog = null },
         )
+        ProfileDialog.Language -> AlertDialog(
+            onDismissRequest = { dialog = null },
+            title = { Text("Choose language") },
+            text = {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    com.sabil.qnow.data.local.AppLanguage.entries.forEach { lang ->
+                        Row(
+                            Modifier.fillMaxWidth().selectable(selected = lang == language, onClick = { vm.setLanguage(lang); dialog = null }).padding(vertical = Space.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = lang == language, onClick = null)
+                            Spacer(Modifier.width(Space.sm))
+                            Column {
+                                androidx.compose.material3.Text(lang.nativeName, style = MaterialTheme.typography.titleMedium)
+                                if (lang != com.sabil.qnow.data.local.AppLanguage.EN) {
+                                    androidx.compose.material3.Text(lang.englishName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialog = null }) { Text("Done") } },
+        )
         null -> Unit
     }
 }
 
-private enum class ProfileDialog { Rename, Theme, SignOut, Delete, Privacy, Business }
+private enum class ProfileDialog { Rename, Theme, SignOut, Delete, Privacy, Business, Language }
 
 @Composable
 private fun ProfileHeader(account: AccountInfo?, onBack: () -> Unit, onEdit: () -> Unit) {

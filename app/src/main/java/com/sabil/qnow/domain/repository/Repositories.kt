@@ -131,8 +131,40 @@ interface SupportRepository {
     fun observeMine(): Flow<List<SupportTicket>>
 }
 
+/** What the QNow team fills in to create or edit an ad. */
+data class PromoDraft(
+    val title: String,
+    val subtitle: String,
+    val ctaLabel: String,
+    val imageUrl: String?,
+    val targetBusinessId: String?,
+    val audience: com.sabil.qnow.domain.model.AdAudience,
+    val area: com.sabil.qnow.domain.model.GeoLocation?,
+    val radiusKm: Double,
+    val days: Int?,
+    val sponsor: String?,
+    val priority: Int,
+    val action: com.sabil.qnow.domain.model.PromoAction = com.sabil.qnow.domain.model.PromoAction.NONE,
+    val linkUrl: String? = null,
+)
+
 interface PromoRepository {
+    /** Live ads for customers (targeting is applied on the phone). */
     fun observePromos(): Flow<List<Promo>>
+    /** Counts one view / tap. Totals only: nothing about the customer is saved. */
+    suspend fun recordView(promoId: String)
+    suspend fun recordTap(promoId: String)
+
+    // ---- QNow team (admin) only; the security rules refuse everyone else.
+    fun observeIsAdmin(): Flow<Boolean>
+    fun observeAllPromos(): Flow<List<Promo>>
+    suspend fun savePromo(id: String?, draft: PromoDraft)
+    suspend fun setPromoActive(id: String, active: Boolean)
+    suspend fun deletePromo(id: String)
+    /** Shops a sponsorship or an ad can point to. */
+    suspend fun allShops(): List<com.sabil.qnow.domain.model.Business>
+    suspend fun setSponsor(businessId: String, audience: com.sabil.qnow.domain.model.AdAudience, days: Int, sponsor: String?)
+    suspend fun clearSponsor(businessId: String)
 }
 
 interface LocationRepository {

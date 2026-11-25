@@ -10,6 +10,7 @@ import com.google.firebase.firestore.Query
 import com.sabil.qnow.data.firebase.Paths
 import com.sabil.qnow.data.firebase.business
 import com.sabil.qnow.data.firebase.observe
+import com.sabil.qnow.data.firebase.toBusiness
 import com.sabil.qnow.data.firebase.toPromo
 import com.sabil.qnow.data.firebase.toReview
 import com.sabil.qnow.data.local.SecureStore
@@ -209,8 +210,74 @@ class FirestorePromoRepository @Inject constructor(
     private val db: FirebaseFirestore,
 ) : PromoRepository {
     override fun observePromos(): Flow<List<Promo>> =
-        db.collection(Paths.PROMOS).whereEqualTo("active", true).limit(10)
+        db.collection(Paths.PROMOS).whereEqualTo("active", true).limit(30)
             .observe()
             .map { snap -> snap.documents.map { it.toPromo() }.sortedBy { it.priority } }
             .catch { emit(emptyList()) }
+
+    override suspend fun recordView(promoId: String) {
+        db.collection(Paths.PROMOS).document(promoId).update("views", com.google.firebase.firestore.FieldValue.increment(1)).await()
+    }
+
+    override suspend fun recordTap(promoId: String) {
+        db.collection(Paths.PROMOS).document(promoId).update("taps", com.google.firebase.firestore.FieldValue.increment(1)).await()
+    }
+
+    override fun observeIsAdmin(): Flow<Boolean> {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return kotlinx.coroutines.flow.flowOf(false)
+        return db.collection("admins").document(uid).observe().map { it?.exists() == true }.catch { emit(false) }
+    }
+
+    override fun observeAllPromos(): Flow<List<Promo>> =
+        db.collection(Paths.PROMOS).limit(100).observe()
+            .map { snap -> snap.documents.map { it.toPromo() }.sortedWith(compareByDescending<Promo> { it.active }.thenBy { it.priority }) }
+            .catch { emit(emptyList()) }
+
+    override suspend fun savePromo(id: String?, draft: com.sabil.qnow.domain.repository.PromoDraft) {
+        val ref = if (id == null) db.collection(Paths.PROMOS).document() else db.collection(Paths.PROMOS).document(id)
+        val now = System.currentTimeMillis()
+        val data = mutableMapOf<String, Any?>(
+            "title" to draft.title.trim().take(60),
+            "subtitle" to draft.subtitle.trim().take(120),
+            "ctaLabel" to draft.ctaLabel.trim().ifBlank { "View" }.take(20),
+            "imageUrl" to draft.imageUrl?.trim()?.ifBlank { null },
+            "targetBusinessId" to draft.targetBusinessId.takeIf { draft.action == com.sabil.qnow.domain.model.PromoAction.SHOP },
+            "action" to draft.action.name,
+            "linkUrl" to draft.linkUrl?.trim()?.takeIf { draft.action == com.sabil.qnow.domain.model.PromoAction.LINK && it.startsWith("https://") }?.take(300),
+            "audience" to draft.audience.name,
+            "area" to draft.area?.let { mapOf("lat" to it.lat, "lng" to it.lng, "radiusKm" to draft.radiusKm) },
+            "startsAt" to com.google.firebase.Timestamp(java.util.Date(now)),
+            "endsAt" to draft.days?.let { com.google.firebase.Timestamp(java.util.Date(now + it * 86_400_000L)) },
+            "sponsor" to draft.sponsor?.trim()?.ifBlank { null }?.take(60),
+            "priority" to draft.priority,
+            "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+        )
+        if (id == null) data += mapOf("active" to true, "views" to 0, "taps" to 0, "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp())
+        ref.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
+    override suspend fun setPromoActive(id: String, active: Boolean) {
+        db.collection(Paths.PROMOS).document(id).update("active", active).await()
+    }
+
+    override suspend fun deletePromo(id: String) {
+        db.collection(Paths.PROMOS).document(id).delete().await()
+    }
+
+    override suspend fun allShops(): List<com.sabil.qnow.domain.model.Business> =
+        db.collection(Paths.BUSINESSES).limit(300).get().await().documents.mapNotNull { it.toBusiness() }.sortedBy { it.name.lowercase() }
+
+    override suspend fun setSponsor(businessId: String, audience: com.sabil.qnow.domain.model.AdAudience, days: Int, sponsor: String?) {
+        db.collection(Paths.BUSINESSES).document(businessId).update(
+            "sponsor", mapOf(
+                "audience" to audience.name,
+                "until" to com.google.firebase.Timestamp(java.util.Date(System.currentTimeMillis() + days * 86_400_000L)),
+                "sponsor" to sponsor?.trim()?.ifBlank { null },
+            ),
+        ).await()
+    }
+
+    override suspend fun clearSponsor(businessId: String) {
+        db.collection(Paths.BUSINESSES).document(businessId).update("sponsor", com.google.firebase.firestore.FieldValue.delete()).await()
+    }
 }

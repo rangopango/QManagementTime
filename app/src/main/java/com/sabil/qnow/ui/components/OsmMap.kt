@@ -12,13 +12,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -74,12 +75,14 @@ fun OsmMap(
     onPinClick: (String) -> Unit = {},
     onMapTap: (GeoLocation) -> Unit = {},
     onCameraSettled: (GeoLocation, Double) -> Unit = { _, _ -> },
+    /** The customer's profile picture, shown in their "You" pin. */
+    myPhotoUrl: String? = null,
 ) {
     // Google Maps when a key is configured (better street names), otherwise free OpenStreetMap.
     if (com.sabil.qnow.BuildConfig.GOOGLE_MAPS) {
         GoogleQMap(camera, pins, modifier, showMyLocation, dark, onPinClick, onMapTap, onCameraSettled)
     } else {
-        OpenStreetQMap(camera, pins, modifier, showMyLocation, dark, onPinClick, onMapTap, onCameraSettled)
+        OpenStreetQMap(camera, pins, modifier, showMyLocation, dark, onPinClick, onMapTap, onCameraSettled, myPhotoUrl)
     }
 }
 
@@ -93,6 +96,7 @@ private fun OpenStreetQMap(
     onPinClick: (String) -> Unit = {},
     onMapTap: (GeoLocation) -> Unit = {},
     onCameraSettled: (GeoLocation, Double) -> Unit = { _, _ -> },
+    myPhotoUrl: String? = null,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -129,6 +133,7 @@ private fun OpenStreetQMap(
 
     // Set once the map is torn down; effects that finish later must not touch it (osmdroid crashes).
     val alive = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
+    var myPhoto by remember { androidx.compose.runtime.mutableStateOf<Bitmap?>(null) }
 
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -160,13 +165,30 @@ private fun OpenStreetQMap(
 
     LaunchedEffect(showMyLocation) {
         if (!alive.get()) return@LaunchedEffect
+        map.overlays.filterIsInstance<MyLocationNewOverlay>().forEach { it.disableMyLocation() }
         map.overlays.removeAll { it is MyLocationNewOverlay }
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
         if (showMyLocation && granted) {
-            map.overlays.add(MyLocationNewOverlay(GpsMyLocationProvider(context), map).apply { enableMyLocation() })
+            map.overlays.add(MeOverlay(context, map, gradientStart).apply { enableMyLocation(); setPhoto(myPhoto) })
         }
         map.invalidate()
+    }
+
+    // The customer's picture for their pin (falls back to a person figure).
+    LaunchedEffect(myPhotoUrl) {
+        val url = myPhotoUrl ?: return@LaunchedEffect
+        val bmp = runCatching {
+            val result = coil3.SingletonImageLoader.get(context).execute(
+                coil3.request.ImageRequest.Builder(context).data(url).size(160).build(),
+            )
+            (result as? coil3.request.SuccessResult)?.image?.let { img ->
+                (img as? coil3.BitmapImage)?.bitmap
+                    ?: Bitmap.createBitmap(img.width.coerceAtLeast(1), img.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { img.draw(Canvas(it)) }
+            }
+        }.getOrNull()
+        myPhoto = bmp
+        if (alive.get()) map.overlays.filterIsInstance<MeOverlay>().forEach { it.setPhoto(bmp) }
     }
 
     LaunchedEffect(pins) {
@@ -181,6 +203,8 @@ private fun OpenStreetQMap(
                 setOnMarkerClickListener { _, _ -> pinClick(pin.id); true }
             })
         }
+        // Keep "You" on top of the shop pins.
+        map.overlays.filterIsInstance<MeOverlay>().forEach { me -> map.overlays.remove(me); map.overlays.add(me) }
         map.invalidate()
     }
 

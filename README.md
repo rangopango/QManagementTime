@@ -5,11 +5,11 @@
 <h3>Live queue management for barbers, salons and parlours.<br/>Built to grow into car washes, clinics and any business with a line.</h3>
 
 <p>
-  <a href="https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.1.apk"><img src="https://img.shields.io/badge/Download-QNow%201.1.1-5B3DF5?style=for-the-badge&logo=android&logoColor=white" alt="Download QNow 1.1.1" /></a>
+  <a href="https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-2.0.0.apk"><img src="https://img.shields.io/badge/Download-QNow%202.0.0-5B3DF5?style=for-the-badge&logo=android&logoColor=white" alt="Download QNow 2.0.0" /></a>
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.1-5B3DF5" alt="Version 1.1.1" />
+  <img src="https://img.shields.io/badge/version-2.0.0-5B3DF5" alt="Version 2.0.0" />
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin" />
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
@@ -43,10 +43,10 @@ Waiting rooms waste everyone's time. With QNow, customers book a token from thei
 
 | | |
 |---|---|
-| **Latest** | [**QNow 1.1.1**](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-1.1.1.apk) |
-| **Size** | 19.8 MB |
+| **Latest** | [**QNow 2.0.0**](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-2.0.0.apk) |
+| **Size** | 67.9 MB |
 | **Requires** | Android 8.0 (Oreo) or newer |
-| **SHA-256** | `E2CD480C54DC83378096BEA9887DCD817293E510280E982CB25B42FD0E3F4520` |
+| **SHA-256** | `DEFC9D6A6E56D0C688E166B291801F37A5F54D1D0AAD7287929CE8C5FE4BA845` |
 
 1. On your Android phone, tap the download link above.
 2. Open the downloaded file. If Android asks, allow your browser to **install unknown apps**.
@@ -166,17 +166,37 @@ firebase/            Firestore security rules and indexes
 
 ## 🗺 Roadmap
 
-- [ ] AI Style Try-On: preview styles on your own photo
+- [x] AI Style Try-On: preview styles on your own photo (Look Studio, 2.0.0)
+- [x] Sponsored banners from businesses (2.0.0)
 - [ ] Car washes, clinics and other business types
-- [ ] Sponsored banners from businesses
 - [ ] Google Play release
 
 ## 📦 Version history
 
-The newest version is always first. Tap a version to see what changed and download it.
+The newest version is always first. Tap a version to see what changed and download it. Every older version stays here, so you can always go back.
 
 <details open>
-<summary><b>QNow 1.1.1</b> · latest · November 2026</summary>
+<summary><b>QNow 2.0.0</b> · latest · November 2026</summary>
+
+<br/>
+
+Version 2: a big update for customers, shops and the QNow team.
+
+- **Look Studio**: pick hair, beard and colour styles and see a realistic AI look on your own photo, free and in the app (selfie opens the front camera)
+- **Book several services at once**, with total time and price
+- **How to get there**: road route on a map, travel time by walk, bike or car, when to leave, and one-tap navigation
+- **My tokens** redesigned: live ticket card and a day-by-day history; old tokens now show as expired
+- **You on the map**: your photo pin shows where you are among nearby shops
+- **23 languages**: English plus all 22 official Indian languages (Hindi, Bengali, Assamese and more)
+- **Targeted ads and sponsorship** for men, women or everyone, by area and dates; targeting happens on your phone only
+- Profile, family members and helpline screens
+
+**[⬇ Download QNow 2.0.0](https://github.com/rangopango/QManagementTime/raw/main/downloads/QNow-2.0.0.apk)** · Android 8.0+ · SHA-256 `DEFC9D6A6E56D0C688E166B291801F37A5F54D1D0AAD7287929CE8C5FE4BA845`
+
+</details>
+
+<details>
+<summary><b>QNow 1.1.1</b> · November 2026</summary>
 
 <br/>
 

@@ -54,11 +54,17 @@ class MainActivity : ComponentActivity() {
         val configured = (application as QNowApp).isFirebaseConfigured || demoMode.enabled
         setContent {
             val theme by settings.theme.collectAsStateWithLifecycle(ThemeMode.SYSTEM)
+            val language by settings.language.collectAsStateWithLifecycle(com.sabil.qnow.data.local.AppLanguage.EN)
             val dark = when (theme) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.sabil.qnow.ui.i18n.LocalLanguage provides language,
+                androidx.compose.ui.platform.LocalLayoutDirection provides
+                    if (language.rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr,
+            ) {
             QNowTheme(darkTheme = dark) {
                 if (!configured) {
                     FirebaseNotConfiguredScreen(onDemo = demoMode::enter)
@@ -80,6 +86,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }

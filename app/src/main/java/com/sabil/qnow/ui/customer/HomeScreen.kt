@@ -45,7 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,6 +91,7 @@ fun HomeScreen(
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
     ) { result -> vm.onLocationPermission(result.values.any { it }) }
@@ -114,7 +115,24 @@ fun HomeScreen(
             }
         }
 
-        item { PromoCarousel(state.promos.ifEmpty { placeholderPromos }, loading = state.loading, onPromo = { it.targetBusinessId?.let(onBusiness) }) }
+        item {
+            PromoCarousel(
+                state.promos.ifEmpty { placeholderPromos }, loading = state.loading,
+                onShown = vm::promoSeen,
+                onPromo = { p ->
+                    vm.promoTapped(p)
+                    when (p.action) {
+                        com.sabil.qnow.domain.model.PromoAction.SHOP -> p.targetBusinessId?.let(onBusiness)
+                        com.sabil.qnow.domain.model.PromoAction.LOOKS -> onTryOn()
+                        com.sabil.qnow.domain.model.PromoAction.MAP -> onFind()
+                        com.sabil.qnow.domain.model.PromoAction.LINK -> p.linkUrl?.takeIf { it.startsWith("https://") }?.let { url ->
+                            runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                        }
+                        com.sabil.qnow.domain.model.PromoAction.NONE -> Unit
+                    }
+                },
+            )
+        }
 
         item { FindCta(onFind) }
 
@@ -157,7 +175,7 @@ fun HomeScreen(
                 )
             }
             else -> items(state.nearby, key = { "near-" + it.live.business.id }) { shop ->
-                FavouriteRow(shop.live, Modifier.padding(horizontal = Space.screen).animateItem(), distanceKm = shop.distanceKm) {
+                FavouriteRow(shop.live, Modifier.padding(horizontal = Space.screen).animateItem(), distanceKm = shop.distanceKm, sponsored = shop.sponsored) {
                     onBusiness(shop.live.business.id)
                 }
             }
@@ -172,7 +190,7 @@ private fun HomeTopBar(account: com.sabil.qnow.domain.repository.AccountInfo?, o
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(greeting() + (account?.name?.substringBefore(' ')?.let { ", $it" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(com.sabil.qnow.ui.i18n.tr(greeting()) + (account?.name?.substringBefore(' ')?.let { ", $it" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Skip the wait.", style = MaterialTheme.typography.headlineMedium)
         }
         // Profile button, top right (like big shopping apps): photo or initial on the brand gradient.
@@ -242,9 +260,9 @@ private fun ActiveTokenCard(active: ActiveToken, onClick: () -> Unit) {
 
 /** Banners shown until real promos are added to the `promos` collection. */
 private val placeholderPromos = listOf(
-    Promo("p1", "Fresh cut, zero wait", "Book a token and arrive just in time.", "Explore", null, null, 0),
-    Promo("p2", "Your shop on QNow", "Business owners: list your queue for free.", "Learn more", null, null, 1),
-    Promo("p3", "Never miss your turn", "We'll ping you 15 and 5 minutes before.", "Got it", null, null, 2),
+    Promo("builtin-1", "Fresh cut, zero wait", "Book a token and arrive just in time.", "Explore", null, null, 0),
+    Promo("builtin-2", "Your shop on QNow", "Business owners: list your queue for free.", "Learn more", null, null, 1),
+    Promo("builtin-3", "Never miss your turn", "We'll ping you 15 and 5 minutes before.", "Got it", null, null, 2),
 )
 
 private val promoGradients = listOf(
@@ -255,7 +273,7 @@ private val promoGradients = listOf(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PromoCarousel(promos: List<Promo>, loading: Boolean, onPromo: (Promo) -> Unit) {
+private fun PromoCarousel(promos: List<Promo>, loading: Boolean, onShown: (Promo) -> Unit = {}, onPromo: (Promo) -> Unit) {
     if (loading) {
         Shimmer(Modifier.padding(horizontal = Space.screen).fillMaxWidth().height(160.dp), MaterialTheme.shapes.large)
         return
@@ -267,6 +285,7 @@ private fun PromoCarousel(promos: List<Promo>, loading: Boolean, onPromo: (Promo
             pager.animateScrollToPage((pager.currentPage + 1) % promos.size)
         }
     }
+    LaunchedEffect(pager.currentPage, promos) { promos.getOrNull(pager.currentPage)?.let(onShown) }
     Column {
         HorizontalPager(
             state = pager,
@@ -288,6 +307,11 @@ private fun PromoCarousel(promos: List<Promo>, loading: Boolean, onPromo: (Promo
                         // Decorative rings so placeholder banners don't look flat.
                         Box(Modifier.size(180.dp).offset(x = 220.dp, y = (-40).dp).clip(CircleShape).background(Color.White.copy(alpha = 0.10f)))
                         Box(Modifier.size(110.dp).offset(x = 260.dp, y = 80.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f)))
+                    }
+                    if (promo.sponsor != null) {
+                        Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.35f), modifier = Modifier.align(Alignment.TopEnd).padding(Space.md)) {
+                            Text("Sponsored · ${promo.sponsor}", style = MaterialTheme.typography.labelSmall, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                        }
                     }
                     Column(Modifier.padding(Space.lg).align(Alignment.CenterStart).fillMaxWidth(0.72f)) {
                         Text(promo.title, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
@@ -356,7 +380,7 @@ private fun TryOnTeaser(onClick: () -> Unit) {
 }
 
 @Composable
-fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, distanceKm: Double? = null, onClick: () -> Unit) {
+fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, distanceKm: Double? = null, sponsored: Boolean = false, onClick: () -> Unit) {
     val biz = live.business
     QCard(modifier.fillMaxWidth(), onClick = onClick) {
         Row(Modifier.padding(Space.md), verticalAlignment = Alignment.CenterVertically) {
@@ -370,6 +394,7 @@ fun FavouriteRow(live: LiveBusiness, modifier: Modifier = Modifier, distanceKm: 
                 }
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (sponsored) { Pill("Sponsored", QNowTheme.extended.star); Spacer(Modifier.width(Space.sm)) }
                     StatusPill(biz.status)
                     if (biz.ratingCount > 0) {
                         Spacer(Modifier.width(Space.sm))

@@ -13,6 +13,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
+    <!-- Lets QNow hand a photo to the Gemini app for 'Try with Gemini'. -->
+    <queries>
+        <package android:name="com.google.android.apps.bard" />
+    </queries>
+
     <application
         android:name=".QNowApp"
         android:allowBackup="false"

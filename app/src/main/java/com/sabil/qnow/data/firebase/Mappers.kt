@@ -65,6 +65,10 @@ fun DocumentSnapshot.toBusiness(): Business? {
         utcOffsetMinutes = int("utcOffsetMinutes"),
         graceMinutes = int("graceMinutes", 3),
         currencyCode = str("currency")?.takeIf { it.length == 3 } ?: "INR",
+        sponsorship = (get("sponsor") as? Map<*, *>)?.let { m ->
+            val until = (m["until"] as? com.google.firebase.Timestamp)?.toDate()?.time ?: return@let null
+            com.sabil.qnow.domain.model.Sponsorship(enumOr(m["audience"] as? String, com.sabil.qnow.domain.model.AdAudience.ALL), until, m["sponsor"] as? String)
+        },
         queue = QueueCounter(
             dayKey = queue?.num("dayKey")?.toLong() ?: 0,
             lastNumber = queue?.num("lastNumber")?.toInt() ?: 0,
@@ -141,4 +145,18 @@ fun DocumentSnapshot.toPromo(): Promo = Promo(
     imageUrl = str("imageUrl"),
     targetBusinessId = str("targetBusinessId"),
     priority = int("priority"),
+    active = getBoolean("active") ?: false,
+    audience = enumOr(str("audience"), com.sabil.qnow.domain.model.AdAudience.ALL),
+    areaCenter = (get("area") as? Map<*, *>)?.let { m ->
+        val lat = (m["lat"] as? Number)?.toDouble(); val lng = (m["lng"] as? Number)?.toDouble()
+        if (lat != null && lng != null) GeoLocation(lat, lng) else null
+    },
+    radiusKm = ((get("area") as? Map<*, *>)?.get("radiusKm") as? Number)?.toDouble() ?: 0.0,
+    startsAtMillis = millis("startsAt"),
+    endsAtMillis = millis("endsAt"),
+    sponsor = str("sponsor"),
+    action = enumOr(str("action"), if (str("targetBusinessId") != null) com.sabil.qnow.domain.model.PromoAction.SHOP else com.sabil.qnow.domain.model.PromoAction.NONE),
+    linkUrl = str("linkUrl"),
+    views = long("views"),
+    taps = long("taps"),
 )

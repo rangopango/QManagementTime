@@ -104,6 +104,8 @@ data class Business(
     val queue: QueueCounter,
     /** ISO 4217 code of the shop's country (from its map pin), e.g. INR. Prices are shown in it. */
     val currencyCode: String = "INR",
+    /** Set by QNow when the shop pays to be listed first. */
+    val sponsorship: Sponsorship? = null,
 ) {
     val rating: Double get() = if (ratingCount == 0L) 0.0 else ratingSum.toDouble() / ratingCount
     val averageServiceMinutes: Int
@@ -175,7 +177,17 @@ data class Review(
     val createdAtMillis: Long,
 )
 
-/** A banner slot on the customer home screen. Managed from the Firebase console. */
+/** Who an ad or a sponsorship is shown to. Children never get targeted ads (Google Play rules). */
+enum class AdAudience(val label: String) { ALL("Everyone"), MEN("Men"), WOMEN("Women") }
+
+/** What tapping an ad does. */
+enum class PromoAction(val label: String) { NONE("Nothing"), SHOP("A shop"), LOOKS("Look Studio"), MAP("Map"), LINK("Web link") }
+
+/**
+ * A banner on the customer home screen: our own promotions and paid ads from sponsors.
+ * Targeting (who, where, when) is checked ON THE PHONE, so nothing about the customer is sent
+ * anywhere to pick their ads. Sponsors only ever see the [views] and [taps] totals.
+ */
 data class Promo(
     val id: String,
     val title: String,
@@ -184,7 +196,57 @@ data class Promo(
     val imageUrl: String?,
     val targetBusinessId: String?,
     val priority: Int,
-)
+    val active: Boolean = true,
+    val audience: AdAudience = AdAudience.ALL,
+    /** Only shown within [radiusKm] of this point; null = everywhere. */
+    val areaCenter: GeoLocation? = null,
+    val radiusKm: Double = 0.0,
+    val startsAtMillis: Long? = null,
+    val endsAtMillis: Long? = null,
+    /** Name of the paying sponsor; null for QNow's own promotions. Shown as "Sponsored". */
+    val sponsor: String? = null,
+    /** What a tap opens. Older ads without it open [targetBusinessId] when set. */
+    val action: PromoAction = if (targetBusinessId != null) PromoAction.SHOP else PromoAction.NONE,
+    /** https link for [PromoAction.LINK]. */
+    val linkUrl: String? = null,
+    val views: Long = 0,
+    val taps: Long = 0,
+) {
+    /** Should this customer see the ad? Runs on the phone only. */
+    fun showsTo(gender: Gender?, here: GeoLocation?, now: Long): Boolean {
+        if (!active) return false
+        if (startsAtMillis != null && now < startsAtMillis) return false
+        if (endsAtMillis != null && now > endsAtMillis) return false
+        when (audience) {
+            AdAudience.ALL -> Unit
+            AdAudience.MEN -> if (gender != Gender.MALE) return false
+            AdAudience.WOMEN -> if (gender != Gender.FEMALE) return false
+        }
+        val c = areaCenter
+        if (c != null && radiusKm > 0) {
+            if (here == null || kmBetween(c, here) > radiusKm) return false
+        }
+        return true
+    }
+}
+
+/** A shop paying to be listed first (with a "Sponsored" label) for an audience, until a date. */
+data class Sponsorship(val audience: AdAudience, val untilMillis: Long, val sponsor: String? = null) {
+    fun showsTo(gender: Gender?, now: Long): Boolean = now <= untilMillis && when (audience) {
+        AdAudience.ALL -> true
+        AdAudience.MEN -> gender == Gender.MALE
+        AdAudience.WOMEN -> gender == Gender.FEMALE
+    }
+}
+
+/** Straight-line distance in km (haversine). */
+fun kmBetween(a: GeoLocation, b: GeoLocation): Double {
+    val dLat = Math.toRadians(b.lat - a.lat)
+    val dLng = Math.toRadians(b.lng - a.lng)
+    val h = Math.sin(dLat / 2).let { it * it } +
+        Math.cos(Math.toRadians(a.lat)) * Math.cos(Math.toRadians(b.lat)) * Math.sin(dLng / 2).let { it * it }
+    return 2 * 6371.0 * Math.asin(Math.sqrt(h))
+}
 
 /** A shop photo stored as compressed JPEG bytes in Firestore (no paid file storage). */
 class Photo(val id: String, val bytes: ByteArray)

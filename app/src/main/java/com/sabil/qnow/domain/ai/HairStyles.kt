@@ -107,6 +107,14 @@ object HairStyles {
 
     val groups = listOf(men, women, kids, beard, colours)
 
+    /** Instruction for any mix of a haircut, a beard and a colour picked together. */
+    fun promptFor(picks: List<StyleOption>): String = buildString {
+        append("Edit this photo of a real person to preview a new look at a salon. ")
+        picks.forEach { append(it.prompt).append(' ') }
+        append("Keep the person's face, identity, expression, skin tone, age, clothing, pose, lighting and background exactly the same. ")
+        append("Make it photorealistic, like a real photo taken after the visit. Return one edited image.")
+    }
+
     /** The instruction sent with the customer's photo. Identity-preserving and realistic. */
     fun prompt(cut: StyleOption?, colour: StyleOption?): String = buildString {
         append("Edit this photo of a real person to preview a new look at a salon. ")

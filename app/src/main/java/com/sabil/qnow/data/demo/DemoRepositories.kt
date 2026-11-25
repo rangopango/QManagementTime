@@ -196,4 +196,14 @@ class DemoSupportRepository @Inject constructor() : com.sabil.qnow.domain.reposi
 class DemoPromoRepository @Inject constructor() : PromoRepository {
     /** Empty, so the home screen shows its built-in banners. */
     override fun observePromos(): Flow<List<Promo>> = flowOf(emptyList())
+    override suspend fun recordView(promoId: String) = Unit
+    override suspend fun recordTap(promoId: String) = Unit
+    override fun observeIsAdmin(): Flow<Boolean> = flowOf(false)
+    override fun observeAllPromos(): Flow<List<Promo>> = flowOf(emptyList())
+    override suspend fun savePromo(id: String?, draft: com.sabil.qnow.domain.repository.PromoDraft) = Unit
+    override suspend fun setPromoActive(id: String, active: Boolean) = Unit
+    override suspend fun deletePromo(id: String) = Unit
+    override suspend fun allShops(): List<com.sabil.qnow.domain.model.Business> = emptyList()
+    override suspend fun setSponsor(businessId: String, audience: com.sabil.qnow.domain.model.AdAudience, days: Int, sponsor: String?) = Unit
+    override suspend fun clearSponsor(businessId: String) = Unit
 }

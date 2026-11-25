@@ -91,14 +91,24 @@ data class HomeUiState(
     val hasLocation: Boolean = true,
 )
 
-data class NearbyShop(val live: LiveBusiness, val distanceKm: Double)
+data class NearbyShop(val live: LiveBusiness, val distanceKm: Double, val sponsored: Boolean = false)
 
-data class ActiveToken(val ref: MyTokenRef, val token: QueueToken)
+data class ActiveToken(val ref: MyTokenRef, val token: QueueToken) {
+    /** Still waiting/called, but from an earlier day: the shop closed without serving it. */
+    val expired: Boolean get() = token.status.isActive && token.dayKey < todayKey()
+    /** Truly live right now (today, not finished). */
+    val live: Boolean get() = token.status.isActive && !expired
+}
+
+/** Whole days since 1970 in this phone's time zone (same idea as the shop's day counter). */
+fun todayKey(now: Long = System.currentTimeMillis()): Long =
+    (now + java.util.TimeZone.getDefault().getOffset(now)) / 86_400_000L
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    promos: PromoRepository,
+    private val promos: PromoRepository,
+    users: com.sabil.qnow.domain.repository.UserRepository,
     favourites: FavouritesRepository,
     businesses: BusinessRepository,
     queue: QueueRepository,
@@ -135,7 +145,7 @@ class HomeViewModel @Inject constructor(
             val recent = refs.take(5)
             combineAll(recent.map { ref -> queue.observeToken(ref.businessId, ref.tokenId).map { t -> t?.let { ActiveToken(ref, it) } } })
         }
-        .map { list -> list.firstOrNull { it != null && it.token.status.isActive } }
+        .map { list -> list.firstOrNull { it != null && it.live } }
         .onEach { a -> a?.let { tracker.track(it.ref.businessId, it.ref.tokenId) } }
         .catch { emit(null) }
 
@@ -144,9 +154,9 @@ class HomeViewModel @Inject constructor(
         .flatMapLatest { center ->
             businesses.observeNearby(center, radiusKm = 10.0)
                 .map { list ->
-                    list.mapNotNull { b -> b.location?.let { b to distanceKm(center, it) } }
-                        .sortedBy { it.second }
-                        .take(10)
+                    val sorted = list.mapNotNull { b -> b.location?.let { b to distanceKm(center, it) } }.sortedBy { it.second }
+                    // The 10 closest, plus up to 3 sponsored shops a little further away.
+                    sorted.take(10) + sorted.drop(10).filter { it.first.sponsorship != null }.take(3)
                 }
                 .distinctUntilChangedBy { pairs -> pairs.map { it.first.id } }
                 .flatMapLatest { pairs ->
@@ -159,20 +169,43 @@ class HomeViewModel @Inject constructor(
 
     private val places = combine(nearby, located) { n, l -> n to l }
 
+    /** The customer's own gender from their profile. Used only on this phone to pick ads. */
+    private val gender = users.observeProfile().map { it.gender }.catch { emit(null) }.onStart { emit(null) }
+
     val state: StateFlow<HomeUiState> = combine(
         promos.observePromos(),
         favouriteBusinesses.catch { emit(emptyList()) },
         activeToken,
         places,
-    ) { p, f, a, (n, l) ->
+        gender,
+    ) { p, f, a, (n, l), g ->
         val favIds = f.map { it.business.id }.toSet()
+        val now = System.currentTimeMillis()
         HomeUiState(
-            loading = false, promos = p, favourites = f, activeToken = a,
-            nearby = n.filterNot { it.live.business.id in favIds },
+            loading = false,
+            promos = p.filter { it.showsTo(g, here.value, now) },
+            favourites = f, activeToken = a,
+            // Sponsored shops (for this customer) first, then by distance.
+            nearby = n.filterNot { it.live.business.id in favIds }
+                .map { it.copy(sponsored = it.live.business.sponsorship?.showsTo(g, now) == true) }
+                .sortedWith(compareByDescending<NearbyShop> { it.sponsored }.thenBy { it.distanceKm }),
             hasLocation = l,
         )
     }
         .state(this, HomeUiState())
+
+    private val seen = mutableSetOf<String>()
+
+    /** Counts a view once per visit to the home screen (not on every auto-scroll). */
+    fun promoSeen(p: Promo) {
+        if (p.id.startsWith("builtin-") || !seen.add(p.id)) return
+        viewModelScope.launch { runCatching { promos.recordView(p.id) } }
+    }
+
+    fun promoTapped(p: Promo) {
+        if (p.id.startsWith("builtin-")) return
+        viewModelScope.launch { runCatching { promos.recordTap(p.id) } }
+    }
 }
 
 // ---------------------------------------------------------------- Map
@@ -285,7 +318,8 @@ data class DetailUiState(
     val live: LiveBusiness? = null,
     val favourite: Boolean = false,
     val reviews: List<Review> = emptyList(),
-    val selectedService: Service? = null,
+    /** Services ticked for this visit (one or more). */
+    val selectedServices: List<Service> = emptyList(),
     val booking: Boolean = false,
     /** Id of this customer's live token here, if they already hold one. */
     val myToken: String? = null,
@@ -295,7 +329,23 @@ data class DetailUiState(
     val person: com.sabil.qnow.domain.model.FamilyMember? = null,
     /** Services that suit [person] (all of them if none are marked). */
     val services: List<Service> = emptyList(),
-)
+) {
+    val totalMinutes: Int get() = selectedServices.sumOf { it.durationMinutes }
+    val totalPrice: Double get() = selectedServices.sumOf { it.price }
+
+    /** All ticked services as one booking: names joined, times and prices added up. */
+    val bookedService: Service?
+        get() = when (selectedServices.size) {
+            0 -> null
+            1 -> selectedServices.first()
+            else -> Service(
+                id = selectedServices.joinToString("+") { it.id }.let { if (it.length <= 64) it else selectedServices.first().id.take(64) },
+                name = selectedServices.joinToString(" + ") { it.name }.take(80),
+                price = totalPrice,
+                durationMinutes = totalMinutes.coerceIn(1, 600),
+            )
+        }
+}
 
 sealed interface DetailEvent {
     data class Booked(val route: TokenRoute) : DetailEvent
@@ -317,7 +367,8 @@ class BusinessDetailViewModel @Inject constructor(
     private val personId = MutableStateFlow(com.sabil.qnow.domain.model.CustomerProfile.SELF_ID)
     private val people = users.observeProfile().map { it.bookable() }.catch { emit(com.sabil.qnow.domain.model.CustomerProfile(null, null, emptyList()).bookable()) }
 
-    private val selected = MutableStateFlow<Service?>(null)
+    /** Ticked service ids. Nothing is ticked until the customer chooses. */
+    private val selected = MutableStateFlow<Set<String>>(emptySet())
     private val booking = MutableStateFlow(false)
     private val _events = Channel<DetailEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
@@ -341,7 +392,7 @@ class BusinessDetailViewModel @Inject constructor(
     private val who = combine(people, personId) { list, id -> list to (list.firstOrNull { it.id == id } ?: list.first()) }
     private val extras = combine(selected, booking, myToken, photos, who) { s, b, m, p, w -> Extras(s, b, m, p, w.first, w.second) }
     private data class Extras(
-        val selected: Service?, val booking: Boolean, val myToken: String?, val photos: List<com.sabil.qnow.domain.model.Photo>,
+        val selected: Set<String>, val booking: Boolean, val myToken: String?, val photos: List<com.sabil.qnow.domain.model.Photo>,
         val people: List<com.sabil.qnow.domain.model.FamilyMember>, val person: com.sabil.qnow.domain.model.FamilyMember,
     )
 
@@ -363,12 +414,15 @@ class BusinessDetailViewModel @Inject constructor(
             live = live,
             favourite = fav,
             reviews = revs,
-            selectedService = x.selected?.takeIf { it in fitting } ?: fitting.firstOrNull(),
+            selectedServices = fitting.filter { it.id in x.selected },
             booking = x.booking,
         )
     }.state(this, DetailUiState())
 
-    fun selectService(s: Service) { selected.value = s }
+    /** Tick or untick a service. */
+    fun toggleService(s: Service) {
+        selected.value = selected.value.let { if (s.id in it) it - s.id else it + s.id }
+    }
     fun selectPerson(id: String) { personId.value = id }
 
     fun toggleFavourite() {
@@ -382,7 +436,7 @@ class BusinessDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val p = state.value.person
             val forName = p?.takeIf { it.id != com.sabil.qnow.domain.model.CustomerProfile.SELF_ID }?.let { if (it.isChild) "${it.name} (child)" else it.name }
-            runCatching { queue.bookToken(biz, state.value.selectedService, forName) }
+            runCatching { queue.bookToken(biz, state.value.bookedService, forName) }
                 .onSuccess { _events.send(DetailEvent.Booked(TokenRoute(it.businessId, it.tokenId))) }
                 .onFailure { e ->
                     _events.send(DetailEvent.Error(when (e) {
@@ -460,18 +514,40 @@ class TokenViewModel @Inject constructor(
 
 // ---------------------------------------------------------------- My tokens list
 
-data class MyTokensUiState(val loading: Boolean = true, val items: List<ActiveToken> = emptyList())
+/** A live token with where it stands in the queue right now. */
+data class LiveTokenItem(val item: ActiveToken, val estimate: WaitEstimator.Estimate?, val nowServing: Int?)
+
+data class MyTokensUiState(
+    val loading: Boolean = true,
+    val live: List<LiveTokenItem> = emptyList(),
+    /** Finished, cancelled, skipped and expired tokens, newest first. */
+    val past: List<ActiveToken> = emptyList(),
+)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class MyTokensViewModel @Inject constructor(queue: QueueRepository) : ViewModel() {
-    val state: StateFlow<MyTokensUiState> = queue.observeMyTokens()
+class MyTokensViewModel @Inject constructor(queue: QueueRepository, observeLive: ObserveLiveBusiness) : ViewModel() {
+    private val all: Flow<List<ActiveToken>> = queue.observeMyTokens()
         .flatMapLatest { refs ->
-            combineAll(refs.map { ref ->
+            combineAll(refs.take(40).map { ref ->
                 queue.observeToken(ref.businessId, ref.tokenId).map { t -> t?.let { ActiveToken(ref, it) } }.catch { emit(null) }
             })
         }
-        .map { MyTokensUiState(false, it.filterNotNull()) }
+        .map { list -> list.filterNotNull().sortedByDescending { it.ref.createdAtMillis } }
+
+    val state: StateFlow<MyTokensUiState> = all
+        .flatMapLatest { items ->
+            val live = items.filter { it.live }
+            // Only live tokens need the shop's live queue (position and wait).
+            combineAll(live.map { a ->
+                observeLive(a.ref.businessId).map { lb ->
+                    LiveTokenItem(
+                        a, lb?.summary?.estimates?.get(a.token.id),
+                        lb?.summary?.servingNumbers?.minOrNull(),
+                    )
+                }.catch { emit(LiveTokenItem(a, null, null)) }
+            }).map { liveItems -> MyTokensUiState(false, liveItems, items.filterNot { it.live }) }
+        }
         .catch { emit(MyTokensUiState(false)) }
         .state(this, MyTokensUiState())
 }

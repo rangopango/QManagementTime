@@ -247,7 +247,7 @@ class DemoWorld @Inject constructor(mode: DemoMode) {
         const val SERVE_MS = 40_000L
         const val YOUR_SERVICE_MS = 45_000L
 
-        val BARBER = listOf(Triple("Haircut", 120.0, 20), Triple("Beard trim", 60.0, 10), Triple("Haircut + beard", 160.0, 30), Triple("Head massage", 100.0, 15))
+        val BARBER = listOf(Triple("Haircut", 120.0, 20), Triple("Beard trim", 60.0, 10), Triple("Clean shave", 50.0, 10), Triple("Head massage", 100.0, 15))
         val SALON = listOf(Triple("Haircut & style", 300.0, 30), Triple("Hair spa", 700.0, 45), Triple("Hair colour", 900.0, 60), Triple("Blow-dry", 250.0, 20))
         val PARLOUR = listOf(Triple("Facial", 500.0, 40), Triple("Threading", 50.0, 10), Triple("Waxing", 300.0, 30), Triple("Manicure", 350.0, 30))
 

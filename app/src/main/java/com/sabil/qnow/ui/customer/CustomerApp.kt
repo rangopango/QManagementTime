@@ -20,7 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +47,7 @@ import com.sabil.qnow.ui.navigation.AiStyleRoute
 import com.sabil.qnow.ui.navigation.LiveMirrorRoute
 import com.sabil.qnow.ui.navigation.FamilyRoute
 import com.sabil.qnow.ui.navigation.SupportRoute
+import com.sabil.qnow.ui.navigation.AdsRoute
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.reflect.KClass
 
@@ -145,6 +146,7 @@ fun CustomerApp(pendingToken: MutableStateFlow<TokenRoute?>, onSignOut: () -> Un
                         onTryOn = { nav.navigate(AiStyleRoute) { launchSingleTop = true } },
                         onFamily = { nav.navigate(FamilyRoute) },
                         onSupport = { nav.navigate(SupportRoute) },
+                        onAds = { nav.navigate(AdsRoute) },
                     )
                 }
                 composable<FavouritesRoute> {
@@ -157,6 +159,7 @@ fun CustomerApp(pendingToken: MutableStateFlow<TokenRoute?>, onSignOut: () -> Un
                 composable<HelpRoute> { HelpScreen(onBack = nav::popBackStack, onSupport = { nav.navigate(SupportRoute) }) }
                 composable<FamilyRoute> { FamilyScreen(onBack = nav::popBackStack) }
                 composable<SupportRoute> { SupportScreen(onBack = nav::popBackStack) }
+                composable<AdsRoute> { AdsScreen(onBack = nav::popBackStack) }
                 composable<AiStyleRoute> { AiStyleScreen(onFindBarber = { nav.navigate(MapRoute) { launchSingleTop = true } }, onLiveMirror = { nav.navigate(LiveMirrorRoute) }) }
                 composable<LiveMirrorRoute> { LiveMirrorScreen(onClose = nav::popBackStack) }
             }

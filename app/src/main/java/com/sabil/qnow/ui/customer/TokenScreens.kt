@@ -40,7 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +63,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sabil.qnow.domain.model.TokenStatus
 import com.sabil.qnow.ui.components.EmptyState
 import com.sabil.qnow.ui.components.Pill
+import com.sabil.qnow.ui.components.formatPrice
+import androidx.compose.foundation.layout.wrapContentWidth
+import com.sabil.qnow.domain.model.QueueToken
+import com.sabil.qnow.ui.components.LiveDot
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
 import com.sabil.qnow.ui.components.PrimaryButton
 import com.sabil.qnow.ui.components.QCard
 import com.sabil.qnow.ui.components.SecondaryButton
@@ -111,8 +120,13 @@ fun TokenScreen(
         }
 
         if (token != null && live != null) {
-            Column(Modifier.padding(Space.screen), verticalArrangement = Arrangement.spacedBy(Space.lg)) {
-                if (token.status == TokenStatus.WAITING) {
+            val expired = token.status.isActive && token.dayKey < todayKey()
+            Column(
+                Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 760.dp).padding(Space.screen),
+                verticalArrangement = Arrangement.spacedBy(Space.lg),
+            ) {
+                BookingSummary(token, live.business.name, live.business.currencyCode, live.business.services)
+                if (token.status == TokenStatus.WAITING && !expired) {
                     Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                         Metric(Icons.Rounded.People, "${state.estimate?.peopleAhead ?: 0}", "people ahead", Modifier.weight(1f))
                         Metric(Icons.Rounded.ConfirmationNumber, "${state.estimate?.position ?: "-"}", "your position", Modifier.weight(1f))
@@ -130,8 +144,12 @@ fun TokenScreen(
                     }
                 }
                 LiveQueueCard(live, highlight = token.number)
+                // Help the customer get there while the token is live.
+                if (token.status.isActive && !expired) live.business.location?.let { loc ->
+                    RouteCard(loc, live.business.name, waitMinutes = if (token.status == TokenStatus.WAITING) state.estimate?.waitMinutes else 0)
+                }
                 when {
-                    token.status == TokenStatus.WAITING -> SecondaryButton(
+                    token.status == TokenStatus.WAITING && !expired -> SecondaryButton(
                         "Cancel my token", onClick = { confirmCancel = true }, modifier = Modifier.fillMaxWidth(),
                         enabled = !state.cancelling,
                     )
@@ -155,6 +173,33 @@ fun TokenScreen(
             confirmButton = { TextButton(onClick = { confirmCancel = false; vm.cancel() }) { Text("Cancel token") } },
             dismissButton = { TextButton(onClick = { confirmCancel = false }) { Text("Keep it") } },
         )
+    }
+}
+
+/** The booking at a glance: token, services, total price and when it was booked. */
+@Composable
+private fun BookingSummary(token: QueueToken, shopName: String, currency: String, services: List<com.sabil.qnow.domain.model.Service>) {
+    // The token stores the services as names joined with " + "; prices come from the shop's list.
+    val names = token.serviceName?.split(" + ").orEmpty()
+    val priced = names.mapNotNull { n -> services.firstOrNull { it.name == n } }
+    QCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+            Text("Your booking", style = MaterialTheme.typography.titleMedium)
+            SummaryRow("Shop", shopName.removePrefix("[Bot] "))
+            SummaryRow("Token", "#${token.number}")
+            if (names.isNotEmpty()) SummaryRow("Services", names.joinToString(", "))
+            SummaryRow("Time needed", "about ${token.durationMinutes} min")
+            if (priced.isNotEmpty() && priced.size == names.size) SummaryRow("Total", formatPrice(priced.sumOf { it.price }, currency) + " (pay at the shop)")
+            SummaryRow("Booked", java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(token.createdAtMillis)))
+        }
+    }
+}
+
+@Composable
+private fun SummaryRow(label: String, value: String) {
+    Row {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(120.dp))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
     }
 }
 
@@ -186,13 +231,16 @@ private fun TokenHero(state: TokenUiState) {
         Spacer(Modifier.height(Space.lg))
         AnimatedContent(token.status to wait, label = "status") { (status, minutes) ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val (title, subtitle) = when (status) {
+                val (title, subtitle) = when {
+                    token.status.isActive && token.dayKey < todayKey() -> "Token expired" to "This token was for an earlier day. Book a new one anytime."
+                    else -> when (status) {
                     TokenStatus.WAITING -> formatMinutes(minutes) to if (minutes <= 5) "Almost there — head over now" else "estimated time remaining"
                     TokenStatus.SERVING -> "It's your turn!" to "Please go to the counter"
                     TokenStatus.GRACE -> "You've been called" to "Please come in now, or your token will be skipped"
                     TokenStatus.DONE -> "All done" to "Thanks for visiting"
                     TokenStatus.NO_SHOW -> "Token skipped" to "You weren't there when called. You can book again."
                     TokenStatus.CANCELLED -> "Token cancelled" to "You can book again anytime"
+                    }
                 }
                 Text(title, style = MaterialTheme.typography.headlineLarge, color = Color.White, textAlign = TextAlign.Center)
                 Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f), textAlign = TextAlign.Center)
@@ -203,63 +251,191 @@ private fun TokenHero(state: TokenUiState) {
 
 // ---------------------------------------------------------------- My tokens
 
+/**
+ * My tokens, laid out like a ticket wallet: the live token first (big, with place in line and
+ * wait), then past visits grouped by day with service, time, status and a Rate button.
+ */
 @Composable
 fun MyTokensScreen(onToken: (String, String) -> Unit, onFind: () -> Unit, vm: MyTokensViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    LazyColumn(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(Space.screen),
-        verticalArrangement = Arrangement.spacedBy(Space.md),
-    ) {
-        item {
-            Text("My tokens", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.statusBarsPadding().padding(vertical = Space.md))
-        }
-        when {
-            state.loading -> item { ShimmerList(3) }
-            state.items.isEmpty() -> item {
-                EmptyState(
-                    Icons.Rounded.ConfirmationNumber, "No tokens yet",
-                    "Book a token at any shop and you can follow it live from here.",
-                    actionLabel = "Find a shop", onAction = onFind,
-                )
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            Modifier.fillMaxHeight().widthIn(max = 760.dp).fillMaxWidth(),
+            contentPadding = PaddingValues(start = Space.screen, end = Space.screen, bottom = Space.xxl),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            item {
+                Column(Modifier.statusBarsPadding().padding(top = Space.lg, bottom = Space.md)) {
+                    Text("My tokens", style = MaterialTheme.typography.headlineMedium)
+                    Text("Your live place in line and past visits", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            else -> items(state.items, key = { it.ref.businessId + it.ref.tokenId }) { item ->
-                MyTokenRow(item, Modifier.animateItem()) { onToken(item.ref.businessId, item.ref.tokenId) }
+            when {
+                state.loading -> item { ShimmerList(3) }
+                state.live.isEmpty() && state.past.isEmpty() -> item {
+                    EmptyState(
+                        Icons.Rounded.ConfirmationNumber, "No tokens yet",
+                        "Book a token at any shop and you can follow it live from here.",
+                        actionLabel = "Find a shop", onAction = onFind,
+                    )
+                }
+                else -> {
+                    if (state.live.isNotEmpty()) {
+                        item { SectionLabel("Live now") }
+                        items(state.live, key = { "live-" + it.item.ref.businessId + it.item.ref.tokenId }) { l ->
+                            LiveTokenCard(l, Modifier.animateItem()) { onToken(l.item.ref.businessId, l.item.ref.tokenId) }
+                        }
+                    } else {
+                        item { NoLiveToken(onFind) }
+                    }
+                    var lastDay: String? = null
+                    state.past.forEach { a ->
+                        val day = dayLabel(a.ref.createdAtMillis)
+                        if (day != lastDay) {
+                            lastDay = day
+                            item(key = "day-$day") { SectionLabel(day) }
+                        }
+                        item(key = "past-" + a.ref.businessId + a.ref.tokenId) {
+                            PastTokenRow(a, Modifier.animateItem()) { onToken(a.ref.businessId, a.ref.tokenId) }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MyTokenRow(item: ActiveToken, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val ext = QNowTheme.extended
-    val (label, color, icon) = when (item.token.status) {
-        TokenStatus.WAITING -> Triple("Waiting", MaterialTheme.colorScheme.primary, Icons.Rounded.HourglassTop)
-        TokenStatus.SERVING -> Triple("Your turn", ext.open, Icons.AutoMirrored.Rounded.DirectionsWalk)
-        TokenStatus.GRACE -> Triple("Called", ext.onBreak, Icons.AutoMirrored.Rounded.DirectionsWalk)
-        TokenStatus.DONE -> Triple("Completed", MaterialTheme.colorScheme.tertiary, Icons.Rounded.Celebration)
-        TokenStatus.NO_SHOW -> Triple("Skipped", ext.closed, Icons.Rounded.HourglassTop)
-        TokenStatus.CANCELLED -> Triple("Cancelled", MaterialTheme.colorScheme.onSurfaceVariant, Icons.Rounded.HourglassTop)
-    }
-    QCard(modifier.fillMaxWidth(), onClick = onClick) {
-        Row(Modifier.padding(Space.lg), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(56.dp).clip(MaterialTheme.shapes.medium).background(color.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
-            ) { Text("#${item.token.number}", style = MaterialTheme.typography.titleMedium, color = color) }
-            Spacer(Modifier.width(Space.md))
-            Column(Modifier.weight(1f)) {
-                Text(item.ref.businessName, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(item.ref.createdAtMillis)),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+private fun SectionLabel(text: String) {
+    Text(
+        text.uppercase(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = Space.md, bottom = Space.xs, start = Space.xs),
+    )
+}
+
+@Composable
+private fun LiveTokenCard(l: LiveTokenItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val a = l.item
+    val status = a.token.status
+    Surface(onClick = onClick, shape = MaterialTheme.shapes.extraLarge, color = Color.Transparent, shadowElevation = 4.dp, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.background(QNowTheme.extended.heroGradient).padding(Space.xl)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LiveDot(Brand.Coral)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            when (status) { TokenStatus.SERVING -> "IT'S YOUR TURN"; TokenStatus.GRACE -> "YOU'VE BEEN CALLED"; else -> "IN LINE" },
+                            style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
+                    Spacer(Modifier.height(Space.xs))
+                    Text(a.ref.businessName.removePrefix("[Bot] "), style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    a.token.serviceName?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("TOKEN", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.7f))
+                    TokenNumber(a.token.number, style = MaterialTheme.typography.displaySmall)
+                }
             }
-            Pill(label, color, live = item.token.status.isActive)
+            Spacer(Modifier.height(Space.lg))
+            // Ticket-style stats.
+            Row(
+                Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(Color.White.copy(alpha = 0.14f)).padding(vertical = Space.md),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                when (status) {
+                    TokenStatus.WAITING -> {
+                        TicketStat("${l.estimate?.peopleAhead ?: "–"}", "ahead of you")
+                        TicketStat(l.estimate?.let { formatMinutes(it.waitMinutes) } ?: "–", "approx. wait")
+                        TicketStat(l.nowServing?.let { "#$it" } ?: "–", "now serving")
+                    }
+                    else -> {
+                        TicketStat("Now", "go to the counter")
+                        TicketStat(l.nowServing?.let { "#$it" } ?: "#${a.token.number}", "now serving")
+                    }
+                }
+            }
+            Spacer(Modifier.height(Space.md))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Booked at " + timeOf(a.ref.createdAtMillis), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.weight(1f))
+                Text("View live  ›", style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
         }
     }
 }
 
+@Composable
+private fun TicketStat(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+    }
+}
+
+@Composable
+private fun NoLiveToken(onFind: () -> Unit) {
+    QCard(Modifier.fillMaxWidth(), onClick = onFind, color = MaterialTheme.colorScheme.primaryContainer) {
+        Row(Modifier.padding(Space.lg), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.ConfirmationNumber, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text("No live token", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Book a token and skip the wait", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f))
+            }
+            Pill("Find a shop", MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun PastTokenRow(a: ActiveToken, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val ext = QNowTheme.extended
+    val (label, color) = when {
+        a.expired -> "Expired" to MaterialTheme.colorScheme.onSurfaceVariant
+        a.token.status == TokenStatus.DONE -> "Completed" to ext.open
+        a.token.status == TokenStatus.NO_SHOW -> "Skipped" to ext.closed
+        a.token.status == TokenStatus.CANCELLED -> "Cancelled" to MaterialTheme.colorScheme.onSurfaceVariant
+        else -> "In line" to MaterialTheme.colorScheme.primary
+    }
+    QCard(modifier.fillMaxWidth(), onClick = onClick) {
+        Row(Modifier.padding(horizontal = Space.lg, vertical = Space.md), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(48.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                contentAlignment = Alignment.Center,
+            ) { Text("#${a.token.number}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text(a.ref.businessName.removePrefix("[Bot] "), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(a.token.serviceName, timeOf(a.ref.createdAtMillis)).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.width(Space.sm))
+            if (a.token.status == TokenStatus.DONE && !a.ref.reviewed) {
+                Pill("Rate visit", QNowTheme.extended.star)
+            } else {
+                Pill(label, color)
+            }
+        }
+    }
+}
+
+private fun timeOf(millis: Long): String = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(millis))
+
+/** "Today", "Yesterday" or a date like "24 Nov 2026". */
+private fun dayLabel(millis: Long): String {
+    val day = todayKey(millis)
+    val today = todayKey()
+    return when (day) {
+        today -> "Today"
+        today - 1 -> "Yesterday"
+        else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(millis))
+    }
+}
 // ---------------------------------------------------------------- Review
 
 @Composable

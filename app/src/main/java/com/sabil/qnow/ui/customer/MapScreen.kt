@@ -43,7 +43,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -125,6 +125,7 @@ fun MapScreen(onBusiness: (String) -> Unit, vm: MapViewModel = hiltViewModel()) 
             onPinClick = { id -> if (id.startsWith("osm-")) vm.selectOutside(id) else vm.select(id) },
             onMapTap = { vm.select(null); focus.clearFocus() },
             onCameraSettled = { center, zoom -> if (zoom >= 11.0) vm.onCameraSettled(center) },
+            myPhotoUrl = remember { runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.photoUrl?.toString() }.getOrNull() },
         )
 
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = Space.md)) {
@@ -280,11 +281,11 @@ private fun OutsideCard(shop: com.sabil.qnow.data.places.OutsideShop) {
             Spacer(Modifier.height(Space.md))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 com.sabil.qnow.ui.components.SecondaryButton("Directions", onClick = {
-                    val uri = android.net.Uri.parse("geo:0,0?q={shop.location.lat},{shop.location.lng}({android.net.Uri.encode(shop.name)})")
+                    val uri = android.net.Uri.parse("geo:0,0?q=${shop.location.lat},${shop.location.lng}(${android.net.Uri.encode(shop.name)})")
                     runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
                 }, modifier = Modifier.weight(1f))
                 com.sabil.qnow.ui.components.SecondaryButton("Invite to QNow", onClick = {
-                    val text = "Hi {shop.name}! Your customers could book a live token on QNow and skip the wait. https://github.com/rangopango/QManagementTime"
+                    val text = "Hi ${shop.name}! Your customers could book a live token on QNow and skip the wait. https://github.com/rangopango/QManagementTime"
                     context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), "Invite"))
                 }, modifier = Modifier.weight(1f))
             }

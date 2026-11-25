@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SupportRoute
 @Serializable data object AiStyleRoute
 @Serializable data object LiveMirrorRoute
+@Serializable data object AdsRoute
 
 // Business
 @Serializable data object DashboardRoute

@@ -35,6 +35,9 @@ service cloud.firestore {
 
     function isBizOwner(bizId) { return signedIn() && get(bizDoc(bizId)).data.ownerId == request.auth.uid; }
     function myRole() { return get(userDoc(request.auth.uid)).data.role; }
+    // QNow team accounts. The admins collection is only written from the Firebase console / CLI.
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function validAudience(v) { return v in ['ALL', 'MEN', 'WOMEN']; }
 
     // Whole days since 1970-01-01 in the business's own time zone, from the server clock.
     function serverDayKey(offsetMinutes) {
@@ -60,7 +63,7 @@ service cloud.firestore {
       return d.keys().hasOnly([
           'ownerId', 'name', 'category', 'address', 'lat', 'lng', 'geohash', 'photoIds', 'thumbnail',
           'services', 'hours', 'chairs', 'activeChairs', 'status', 'publicPhone', 'ratingSum',
-          'ratingCount', 'utcOffsetMinutes', 'graceMinutes', 'queue', 'createdAt', 'updatedAt', 'currency'])
+          'ratingCount', 'utcOffsetMinutes', 'graceMinutes', 'queue', 'createdAt', 'updatedAt', 'currency', 'sponsor'])
         && isShortString(d.name, 80) && d.name.size() > 0
         && d.category in ['BARBER', 'SALON', 'PARLOUR', 'CAR_WASH', 'CLINIC', 'OTHER']
         && isShortString(d.address, 300)
@@ -135,9 +138,15 @@ service cloud.firestore {
       allow update: if signedIn() && (
         // The owner edits the profile, the status, and issues walk-in tokens.
         (resource.data.ownerId == request.auth.uid
-          && !changed('ownerId') && !changed('ratingSum') && !changed('ratingCount')
+          && !changed('ownerId') && !changed('ratingSum') && !changed('ratingCount') && !changed('sponsor')
           && validBusiness()
           && (!changed('queue') || validQueueStep(bizId)))
+        // The QNow team sponsors a shop (listed first, with a label) or ends a sponsorship.
+        || (isAdmin() && onlyChanged(['sponsor'])
+          && (!('sponsor' in data())
+            || (data().sponsor.keys().hasOnly(['audience', 'until', 'sponsor'])
+              && validAudience(data().sponsor.audience) && data().sponsor.until is timestamp
+              && optionalShortString(data().sponsor.get('sponsor', null), 60))))
         // A customer takes the next token while the business is open.
         || (onlyChanged(['queue']) && resource.data.status == 'OPEN' && validQueueStep(bizId))
         // A customer's review moves the rating totals by exactly their rating.
@@ -247,8 +256,28 @@ service cloud.firestore {
     }
 
     // ---------- home banners (managed from the console) ----------
+    // Home banners and sponsored ads. Targeting is done on the phone; only totals are stored.
     match /promos/{promoId} {
       allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && data().keys().hasOnly(['title', 'subtitle', 'ctaLabel', 'imageUrl', 'targetBusinessId', 'audience', 'area',
+                                  'startsAt', 'endsAt', 'sponsor', 'priority', 'active', 'views', 'taps', 'createdAt', 'updatedAt',
+                                  'action', 'linkUrl'])
+        && data().get('action', 'NONE') in ['NONE', 'SHOP', 'LOOKS', 'MAP', 'LINK']
+        && (data().get('linkUrl', null) == null || (isShortString(data().linkUrl, 300) && data().linkUrl.matches('https://.*')))
+        && isShortString(data().title, 60) && optionalShortString(data().get('subtitle', null), 120)
+        && validAudience(data().get('audience', 'ALL'));
+      allow delete: if isAdmin();
+      // Anyone signed in may add exactly 1 to the view or tap total, nothing else.
+      allow update: if signedIn() && (
+        (onlyChanged(['views']) && data().views == resource.data.get('views', 0) + 1)
+        || (onlyChanged(['taps']) && data().taps == resource.data.get('taps', 0) + 1)
+      );
+    }
+
+    // Who is on the QNow team. Read your own entry only; written from the console / CLI.
+    match /admins/{uid} {
+      allow read: if isUser(uid);
       allow write: if false;
     }
   }

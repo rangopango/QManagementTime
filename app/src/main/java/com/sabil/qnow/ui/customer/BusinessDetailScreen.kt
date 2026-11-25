@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Storefront
@@ -51,7 +52,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.sabil.qnow.ui.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -142,6 +143,11 @@ fun BusinessDetailScreen(
                 live = live,
                 myToken = state.myToken,
                 booking = state.booking,
+                needsService = state.services.isNotEmpty() && state.selectedServices.isEmpty(),
+                picked = state.selectedServices.takeIf { it.isNotEmpty() }?.let { list ->
+                    val n = list.size
+                    (if (n == 1) list.first().name else "$n services") + " · ~${state.totalMinutes} min · " + formatPrice(state.totalPrice, live.business.currencyCode)
+                },
                 onBook = {
                     if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.book()
                 },
@@ -180,6 +186,14 @@ private fun DetailContent(live: LiveBusiness, state: DetailUiState, vm: Business
                 }
                 Spacer(Modifier.height(Space.md))
                 InfoLine(Icons.Rounded.LocationOn, biz.address)
+                biz.location?.let { loc ->
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    androidx.compose.material3.TextButton(onClick = { navigate(ctx, loc, biz.name, Travel.BIKE) }) {
+                        Icon(androidx.compose.material.icons.Icons.Rounded.Navigation, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(Space.xs))
+                        Text("Get directions")
+                    }
+                }
                 biz.publicPhone?.let { InfoLine(Icons.Rounded.Phone, it) }
             }
         }
@@ -210,7 +224,16 @@ private fun DetailContent(live: LiveBusiness, state: DetailUiState, vm: Business
             item { Text("No services listed yet.", Modifier.padding(horizontal = Space.screen), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         items(state.services, key = { it.id }) { s ->
-            ServiceRow(s, biz.currencyCode, selected = state.selectedService?.id == s.id, onClick = { vm.selectService(s) })
+            ServiceRow(s, biz.currencyCode, selected = state.selectedServices.any { it.id == s.id }, onClick = { vm.toggleService(s) })
+        }
+        if (state.services.size > 1) {
+            item {
+                Text(
+                    "Tick everything you want done. Time and price add up.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = Space.screen, vertical = Space.xs),
+                )
+            }
         }
         item { SectionHeader("Opening hours", Modifier.padding(start = Space.screen, end = Space.screen, top = Space.xl, bottom = Space.sm)) }
         item { HoursCard(biz, Modifier.padding(horizontal = Space.screen)) }
@@ -318,7 +341,7 @@ private fun ServiceRow(s: Service, currencyCode: String, selected: Boolean, onCl
         modifier = Modifier.padding(horizontal = Space.screen, vertical = Space.xs).fillMaxWidth(),
     ) {
         Row(Modifier.padding(horizontal = Space.sm, vertical = Space.sm), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = selected, onClick = onClick)
+            androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onClick() })
             Column(Modifier.weight(1f)) {
                 Text(s.name, style = MaterialTheme.typography.titleSmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -383,6 +406,8 @@ private fun BookBar(
     live: LiveBusiness,
     myToken: String?,
     booking: Boolean,
+    picked: String?,
+    needsService: Boolean,
     onBook: () -> Unit,
     onMyToken: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -398,17 +423,19 @@ private fun BookBar(
             Column(Modifier.weight(1f)) {
                 Text("Estimated wait", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(formatMinutes(live.summary.newcomerWaitMinutes), style = MaterialTheme.typography.headlineSmall)
+                if (needsService && myToken == null) Text("Tick the services you want", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                picked?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
             }
             when {
                 myToken != null -> PrimaryButton("View my token", onClick = { onMyToken(myToken) }, containerColor = MaterialTheme.colorScheme.secondary, contentColor = MaterialTheme.colorScheme.onSecondary)
                 else -> PrimaryButton(
                     text = when (live.business.status) {
-                        BusinessStatus.OPEN -> "Book token"
+                        BusinessStatus.OPEN -> if (needsService) "Pick a service" else "Book token"
                         BusinessStatus.ON_BREAK -> "On a break"
                         BusinessStatus.CLOSED -> "Closed now"
                     },
                     onClick = onBook,
-                    enabled = open,
+                    enabled = open && !needsService,
                     loading = booking,
                 )
             }

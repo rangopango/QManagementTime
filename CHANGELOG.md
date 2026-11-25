@@ -2,6 +2,23 @@
 
 All notable changes to this project. Newest first. Versions follow [Semantic Versioning](https://semver.org).
 
+## [QNow 2.0.0] — 2026-11-25
+
+Version 2.
+
+### Added
+- Look Studio: free in-app AI looks (hair, beard, colour) on your own photo; selfie uses the front camera
+- Multi-service booking with total time and price
+- "How to get there" route card with walk/bike/car times, leave-by time and navigation
+- Your own photo pin on the map
+- 23 languages (English + 22 official Indian languages), right-to-left for Urdu, Kashmiri and Sindhi
+- Targeted promos and sponsorship (audience, area, dates), Ads manager for the QNow team
+- Profile, family and helpline screens
+
+### Changed
+- My tokens redesigned with a live ticket card and day-grouped history
+- Tokens from earlier days now show as expired
+
 ## [QNow 1.1.1] — 2026-11-24
 
 ### Changed
