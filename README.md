@@ -9,6 +9,12 @@
 </p>
 
 <p>
+  <a href="https://github.com/rangopango/QManagementTime/stargazers"><img src="https://img.shields.io/github/stars/rangopango/QManagementTime?style=social" alt="Star QNow on GitHub" /></a>
+</p>
+
+<p><b>⭐ Like QNow? Tap the Star button at the top of this page. It helps more shops find it.</b></p>
+
+<p>
   <img src="https://img.shields.io/badge/version-2.0.0-5B3DF5" alt="Version 2.0.0" />
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+" />
   <img src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin" />
@@ -266,6 +272,14 @@ First public demo. Withdrawn because it crashed on launch on some phones; use 1.
 </details>
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
+
+## ⭐ Support QNow
+
+QNow is free. If it saves you time in a queue, or helps your shop:
+
+- **Star** this project (the ⭐ button at the top of the page)
+- **Share** it with a barber, salon or parlour you visit
+- **Tell us** what to add next by opening an [issue](https://github.com/rangopango/QManagementTime/issues)
 
 ---
 
